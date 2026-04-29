@@ -1,0 +1,18 @@
+{
+  "source_file": "/home-ssd/mkemalw/Projects/MMMACHINE/idx/model/BSJP/bsjp_v10_close10_obj_k2_w25_guard/portfolio_daily.parquet",
+  "source_rows": 100,
+  "source_start_date": "2025-11-13 00:00:00",
+  "source_end_date": "2026-04-21 00:00:00",
+  "seed": 20260423,
+  "n_paths": 10000,
+  "block_size_days": 5,
+  "horizons_days": [
+    100,
+    252
+  ],
+  "drawdown_thresholds": [
+    0.2,
+    0.25,
+    0.3
+  ]
+}

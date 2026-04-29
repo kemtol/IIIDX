@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(/home/kemal/idx/**)",
+      "Read(/home/kemal/idx/data/**)",
+      "Read(/home/kemal/.venv/**)",
+      "Bash(mkdir -p /home/kemal/idx/pipeline/fetch)",
+      "Bash(mkdir -p /home/kemal/idx/pipeline/feature)",
+      "Bash(mkdir -p /home/kemal/idx/pipeline/run)",
+      "Bash(mkdir -p /home/kemal/idx/pipeline/plot)",
+      "Bash(mkdir -p /home/kemal/idx/edges/**)",
+      "Bash(mkdir -p /home/kemal/idx/model/**)",
+      "Bash(mkdir -p /home/kemal/idx/inferences/**)",
+      "Bash(mkdir -p /home/kemal/idx/_LOG)",
+      "Bash(mkdir -p /home/kemal/idx/_MEMORY)",
+      "Bash(mkdir -p /home/kemal/idx/_ARCH)",
+      "Bash(mkdir -p /home/kemal/idx/_BAK)",
+      "Bash(mkdir -p /home/kemal/idx/data/Level_0_Raw)",
+      "Bash(mkdir -p /home/kemal/idx/data/Level_1_Features)",
+      "Bash(mkdir -p /home/kemal/idx/data/Level_1_Features/modules)",
+      "Bash(mkdir -p /home/kemal/idx/data/Level_2_Datamart)",
+      "Bash(source /home/kemal/.venv/bin/activate && python *)",
+      "Bash(source /home/kemal/.venv/bin/activate && pip install *)",
+      "Bash(bash /home/kemal/idx/pipeline/run/*.sh)",
+      "Bash(cd /home/kemal/idx && *)",
+      "Bash(mv /home/kemal/idx/** /home/kemal/idx/**)",
+      "Bash(cp /home/kemal/idx/** /home/kemal/idx/**)",
+      "Bash(rm /home/kemal/idx/**)",
+      "Bash(git add *)"
+    ]
+  }
+}

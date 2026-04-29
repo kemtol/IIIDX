@@ -1,0 +1,2002 @@
+[
+  {
+    "date": "2025-11-17",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "PBSA",
+        "proba": 0.7677
+      },
+      {
+        "rank": 2,
+        "ticker": "HOMI",
+        "proba": 0.7604
+      },
+      {
+        "rank": 3,
+        "ticker": "HELI",
+        "proba": 0.7005
+      }
+    ]
+  },
+  {
+    "date": "2025-11-18",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "GOLD",
+        "proba": 0.7644
+      },
+      {
+        "rank": 2,
+        "ticker": "GTBO",
+        "proba": 0.7534
+      },
+      {
+        "rank": 3,
+        "ticker": "ESTA",
+        "proba": 0.7435
+      }
+    ]
+  },
+  {
+    "date": "2025-11-19",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "ERTX",
+        "proba": 0.7976
+      },
+      {
+        "rank": 2,
+        "ticker": "SGRO",
+        "proba": 0.7564
+      },
+      {
+        "rank": 3,
+        "ticker": "LIFE",
+        "proba": 0.7524
+      }
+    ]
+  },
+  {
+    "date": "2025-11-20",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "GLVA",
+        "proba": 0.773
+      },
+      {
+        "rank": 2,
+        "ticker": "PSSI",
+        "proba": 0.7685
+      },
+      {
+        "rank": 3,
+        "ticker": "BOGA",
+        "proba": 0.748
+      }
+    ]
+  },
+  {
+    "date": "2025-11-21",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "IFSH",
+        "proba": 0.8365
+      },
+      {
+        "rank": 2,
+        "ticker": "IFII",
+        "proba": 0.7851
+      },
+      {
+        "rank": 3,
+        "ticker": "PSSI",
+        "proba": 0.7772
+      }
+    ]
+  },
+  {
+    "date": "2025-11-24",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "GTBO",
+        "proba": 0.8394
+      },
+      {
+        "rank": 2,
+        "ticker": "CAMP",
+        "proba": 0.8333
+      },
+      {
+        "rank": 3,
+        "ticker": "PGUN",
+        "proba": 0.8219
+      }
+    ]
+  },
+  {
+    "date": "2025-11-25",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "MEDS",
+        "proba": 0.7608
+      },
+      {
+        "rank": 2,
+        "ticker": "BHAT",
+        "proba": 0.7415
+      },
+      {
+        "rank": 3,
+        "ticker": "DNAR",
+        "proba": 0.7257
+      }
+    ]
+  },
+  {
+    "date": "2025-11-26",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "PRIM",
+        "proba": 0.7473
+      },
+      {
+        "rank": 2,
+        "ticker": "HELI",
+        "proba": 0.7162
+      },
+      {
+        "rank": 3,
+        "ticker": "LUCY",
+        "proba": 0.7002
+      }
+    ]
+  },
+  {
+    "date": "2025-11-27",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "BBYB",
+        "proba": 0.8061
+      },
+      {
+        "rank": 2,
+        "ticker": "SMMA",
+        "proba": 0.7412
+      },
+      {
+        "rank": 3,
+        "ticker": "RUNS",
+        "proba": 0.683
+      }
+    ]
+  },
+  {
+    "date": "2025-11-28",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "KDSI",
+        "proba": 0.7618
+      },
+      {
+        "rank": 2,
+        "ticker": "PSKT",
+        "proba": 0.7362
+      },
+      {
+        "rank": 3,
+        "ticker": "PADI",
+        "proba": 0.694
+      }
+    ]
+  },
+  {
+    "date": "2025-12-01",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "PADI",
+        "proba": 0.7193
+      },
+      {
+        "rank": 2,
+        "ticker": "HELI",
+        "proba": 0.7046
+      },
+      {
+        "rank": 3,
+        "ticker": "LPGI",
+        "proba": 0.7006
+      }
+    ]
+  },
+  {
+    "date": "2025-12-02",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "RIGS",
+        "proba": 0.712
+      },
+      {
+        "rank": 2,
+        "ticker": "WEGE",
+        "proba": 0.6909
+      },
+      {
+        "rank": 3,
+        "ticker": "EMTK",
+        "proba": 0.6567
+      }
+    ]
+  },
+  {
+    "date": "2025-12-03",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "YPAS",
+        "proba": 0.7658
+      },
+      {
+        "rank": 2,
+        "ticker": "ROCK",
+        "proba": 0.7656
+      },
+      {
+        "rank": 3,
+        "ticker": "PZZA",
+        "proba": 0.7535
+      }
+    ]
+  },
+  {
+    "date": "2025-12-04",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "TRON",
+        "proba": 0.7642
+      },
+      {
+        "rank": 2,
+        "ticker": "EURO",
+        "proba": 0.7609
+      },
+      {
+        "rank": 3,
+        "ticker": "IPOL",
+        "proba": 0.7318
+      }
+    ]
+  },
+  {
+    "date": "2025-12-05",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "DOOH",
+        "proba": 0.8049
+      },
+      {
+        "rank": 2,
+        "ticker": "SOTS",
+        "proba": 0.7398
+      },
+      {
+        "rank": 3,
+        "ticker": "KETR",
+        "proba": 0.6954
+      }
+    ]
+  },
+  {
+    "date": "2025-12-08",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "KONI",
+        "proba": 0.73
+      },
+      {
+        "rank": 2,
+        "ticker": "ENRG",
+        "proba": 0.7195
+      },
+      {
+        "rank": 3,
+        "ticker": "FAST",
+        "proba": 0.7013
+      }
+    ]
+  },
+  {
+    "date": "2025-12-09",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "FIRE",
+        "proba": 0.7437
+      },
+      {
+        "rank": 2,
+        "ticker": "YPAS",
+        "proba": 0.7182
+      },
+      {
+        "rank": 3,
+        "ticker": "SSTM",
+        "proba": 0.708
+      }
+    ]
+  },
+  {
+    "date": "2025-12-10",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "MORA",
+        "proba": 0.7356
+      },
+      {
+        "rank": 2,
+        "ticker": "GTBO",
+        "proba": 0.6795
+      },
+      {
+        "rank": 3,
+        "ticker": "DEPO",
+        "proba": 0.6543
+      }
+    ]
+  },
+  {
+    "date": "2025-12-11",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "GTBO",
+        "proba": 0.7404
+      },
+      {
+        "rank": 2,
+        "ticker": "PZZA",
+        "proba": 0.6932
+      },
+      {
+        "rank": 3,
+        "ticker": "MREI",
+        "proba": 0.6813
+      }
+    ]
+  },
+  {
+    "date": "2025-12-12",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "NFCX",
+        "proba": 0.7196
+      },
+      {
+        "rank": 2,
+        "ticker": "FORU",
+        "proba": 0.6957
+      },
+      {
+        "rank": 3,
+        "ticker": "BRMS",
+        "proba": 0.6916
+      }
+    ]
+  },
+  {
+    "date": "2025-12-15",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "VINS",
+        "proba": 0.7512
+      },
+      {
+        "rank": 2,
+        "ticker": "CSIS",
+        "proba": 0.7315
+      },
+      {
+        "rank": 3,
+        "ticker": "UDNG",
+        "proba": 0.683
+      }
+    ]
+  },
+  {
+    "date": "2025-12-16",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "IDPR",
+        "proba": 0.7162
+      },
+      {
+        "rank": 2,
+        "ticker": "SAMF",
+        "proba": 0.713
+      },
+      {
+        "rank": 3,
+        "ticker": "KDTN",
+        "proba": 0.6837
+      }
+    ]
+  },
+  {
+    "date": "2025-12-17",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "LFLO",
+        "proba": 0.7235
+      },
+      {
+        "rank": 2,
+        "ticker": "IFII",
+        "proba": 0.6693
+      },
+      {
+        "rank": 3,
+        "ticker": "RMKO",
+        "proba": 0.6441
+      }
+    ]
+  },
+  {
+    "date": "2025-12-18",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "PJAA",
+        "proba": 0.69
+      },
+      {
+        "rank": 2,
+        "ticker": "HELI",
+        "proba": 0.6727
+      },
+      {
+        "rank": 3,
+        "ticker": "BMSR",
+        "proba": 0.6574
+      }
+    ]
+  },
+  {
+    "date": "2025-12-19",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "MMIX",
+        "proba": 0.7779
+      },
+      {
+        "rank": 2,
+        "ticker": "MAPB",
+        "proba": 0.7495
+      },
+      {
+        "rank": 3,
+        "ticker": "BUDI",
+        "proba": 0.7301
+      }
+    ]
+  },
+  {
+    "date": "2025-12-22",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "KAEF",
+        "proba": 0.7474
+      },
+      {
+        "rank": 2,
+        "ticker": "INDS",
+        "proba": 0.6842
+      },
+      {
+        "rank": 3,
+        "ticker": "NELY",
+        "proba": 0.6379
+      }
+    ]
+  },
+  {
+    "date": "2025-12-23",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "APIC",
+        "proba": 0.7064
+      },
+      {
+        "rank": 2,
+        "ticker": "MAXI",
+        "proba": 0.6465
+      },
+      {
+        "rank": 3,
+        "ticker": "GUNA",
+        "proba": 0.6458
+      }
+    ]
+  },
+  {
+    "date": "2025-12-24",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "LUCY",
+        "proba": 0.7194
+      },
+      {
+        "rank": 2,
+        "ticker": "MAPB",
+        "proba": 0.7145
+      },
+      {
+        "rank": 3,
+        "ticker": "JMAS",
+        "proba": 0.7103
+      }
+    ]
+  },
+  {
+    "date": "2025-12-29",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "LRNA",
+        "proba": 0.7374
+      },
+      {
+        "rank": 2,
+        "ticker": "DEWA",
+        "proba": 0.7113
+      },
+      {
+        "rank": 3,
+        "ticker": "TRIN",
+        "proba": 0.7105
+      }
+    ]
+  },
+  {
+    "date": "2025-12-30",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "UDNG",
+        "proba": 0.7822
+      },
+      {
+        "rank": 2,
+        "ticker": "SILO",
+        "proba": 0.7396
+      },
+      {
+        "rank": 3,
+        "ticker": "GTBO",
+        "proba": 0.7208
+      }
+    ]
+  },
+  {
+    "date": "2026-01-02",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "HYGN",
+        "proba": 0.7008
+      },
+      {
+        "rank": 2,
+        "ticker": "KMTR",
+        "proba": 0.6699
+      },
+      {
+        "rank": 3,
+        "ticker": "VAST",
+        "proba": 0.6698
+      }
+    ]
+  },
+  {
+    "date": "2026-01-05",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "VINS",
+        "proba": 0.7589
+      },
+      {
+        "rank": 2,
+        "ticker": "INET",
+        "proba": 0.7493
+      },
+      {
+        "rank": 3,
+        "ticker": "PDES",
+        "proba": 0.7329
+      }
+    ]
+  },
+  {
+    "date": "2026-01-06",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "LUCY",
+        "proba": 0.728
+      },
+      {
+        "rank": 2,
+        "ticker": "RAJA",
+        "proba": 0.6796
+      },
+      {
+        "rank": 3,
+        "ticker": "CAKK",
+        "proba": 0.6753
+      }
+    ]
+  },
+  {
+    "date": "2026-01-07",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "PPGL",
+        "proba": 0.7481
+      },
+      {
+        "rank": 2,
+        "ticker": "PNSE",
+        "proba": 0.7413
+      },
+      {
+        "rank": 3,
+        "ticker": "IFSH",
+        "proba": 0.7051
+      }
+    ]
+  },
+  {
+    "date": "2026-01-08",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "HERO",
+        "proba": 0.8117
+      },
+      {
+        "rank": 2,
+        "ticker": "IFSH",
+        "proba": 0.7544
+      },
+      {
+        "rank": 3,
+        "ticker": "MRAT",
+        "proba": 0.7124
+      }
+    ]
+  },
+  {
+    "date": "2026-01-09",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "NINE",
+        "proba": 0.7888
+      },
+      {
+        "rank": 2,
+        "ticker": "DMMX",
+        "proba": 0.6833
+      },
+      {
+        "rank": 3,
+        "ticker": "SOHO",
+        "proba": 0.6755
+      }
+    ]
+  },
+  {
+    "date": "2026-01-12",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "ASDM",
+        "proba": 0.7687
+      },
+      {
+        "rank": 2,
+        "ticker": "GULA",
+        "proba": 0.7378
+      },
+      {
+        "rank": 3,
+        "ticker": "EURO",
+        "proba": 0.7164
+      }
+    ]
+  },
+  {
+    "date": "2026-01-13",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "SOHO",
+        "proba": 0.7381
+      },
+      {
+        "rank": 2,
+        "ticker": "KBLM",
+        "proba": 0.6906
+      },
+      {
+        "rank": 3,
+        "ticker": "MKTR",
+        "proba": 0.6876
+      }
+    ]
+  },
+  {
+    "date": "2026-01-14",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "SSTM",
+        "proba": 0.7782
+      },
+      {
+        "rank": 2,
+        "ticker": "UDNG",
+        "proba": 0.759
+      },
+      {
+        "rank": 3,
+        "ticker": "SOTS",
+        "proba": 0.7424
+      }
+    ]
+  },
+  {
+    "date": "2026-01-15",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "VISI",
+        "proba": 0.7781
+      },
+      {
+        "rank": 2,
+        "ticker": "IRSX",
+        "proba": 0.7061
+      },
+      {
+        "rank": 3,
+        "ticker": "CHEM",
+        "proba": 0.6954
+      }
+    ]
+  },
+  {
+    "date": "2026-01-19",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "ELIT",
+        "proba": 0.7814
+      },
+      {
+        "rank": 2,
+        "ticker": "OASA",
+        "proba": 0.7675
+      },
+      {
+        "rank": 3,
+        "ticker": "ROCK",
+        "proba": 0.7659
+      }
+    ]
+  },
+  {
+    "date": "2026-01-20",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "MGLV",
+        "proba": 0.7149
+      },
+      {
+        "rank": 2,
+        "ticker": "AEGS",
+        "proba": 0.7065
+      },
+      {
+        "rank": 3,
+        "ticker": "IFII",
+        "proba": 0.7001
+      }
+    ]
+  },
+  {
+    "date": "2026-01-21",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "RMKO",
+        "proba": 0.7617
+      },
+      {
+        "rank": 2,
+        "ticker": "CBPE",
+        "proba": 0.7396
+      },
+      {
+        "rank": 3,
+        "ticker": "INAI",
+        "proba": 0.711
+      }
+    ]
+  },
+  {
+    "date": "2026-01-22",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "MYOH",
+        "proba": 0.7775
+      },
+      {
+        "rank": 2,
+        "ticker": "LPCK",
+        "proba": 0.7587
+      },
+      {
+        "rank": 3,
+        "ticker": "LAJU",
+        "proba": 0.7174
+      }
+    ]
+  },
+  {
+    "date": "2026-01-23",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "CASH",
+        "proba": 0.7447
+      },
+      {
+        "rank": 2,
+        "ticker": "TALF",
+        "proba": 0.7192
+      },
+      {
+        "rank": 3,
+        "ticker": "PACK",
+        "proba": 0.6877
+      }
+    ]
+  },
+  {
+    "date": "2026-01-26",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "KMDS",
+        "proba": 0.8141
+      },
+      {
+        "rank": 2,
+        "ticker": "ELPI",
+        "proba": 0.7433
+      },
+      {
+        "rank": 3,
+        "ticker": "KICI",
+        "proba": 0.7152
+      }
+    ]
+  },
+  {
+    "date": "2026-01-27",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "CEKA",
+        "proba": 0.7431
+      },
+      {
+        "rank": 2,
+        "ticker": "DMMX",
+        "proba": 0.7413
+      },
+      {
+        "rank": 3,
+        "ticker": "BOGA",
+        "proba": 0.7099
+      }
+    ]
+  },
+  {
+    "date": "2026-01-28",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "KDSI",
+        "proba": 0.8005
+      },
+      {
+        "rank": 2,
+        "ticker": "BELI",
+        "proba": 0.737
+      },
+      {
+        "rank": 3,
+        "ticker": "CBUT",
+        "proba": 0.7362
+      }
+    ]
+  },
+  {
+    "date": "2026-01-29",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "CEKA",
+        "proba": 0.6405
+      },
+      {
+        "rank": 2,
+        "ticker": "VINS",
+        "proba": 0.5857
+      },
+      {
+        "rank": 3,
+        "ticker": "SDPC",
+        "proba": 0.5729
+      }
+    ]
+  },
+  {
+    "date": "2026-01-30",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "TRUS",
+        "proba": 0.7882
+      },
+      {
+        "rank": 2,
+        "ticker": "RSCH",
+        "proba": 0.7724
+      },
+      {
+        "rank": 3,
+        "ticker": "ERTX",
+        "proba": 0.7629
+      }
+    ]
+  },
+  {
+    "date": "2026-02-03",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "MERK",
+        "proba": 0.7917
+      },
+      {
+        "rank": 2,
+        "ticker": "LCKM",
+        "proba": 0.7735
+      },
+      {
+        "rank": 3,
+        "ticker": "LPLI",
+        "proba": 0.753
+      }
+    ]
+  },
+  {
+    "date": "2026-02-04",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "TIFA",
+        "proba": 0.7681
+      },
+      {
+        "rank": 2,
+        "ticker": "HERO",
+        "proba": 0.7148
+      },
+      {
+        "rank": 3,
+        "ticker": "LION",
+        "proba": 0.7078
+      }
+    ]
+  },
+  {
+    "date": "2026-02-05",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "SMLE",
+        "proba": 0.7804
+      },
+      {
+        "rank": 2,
+        "ticker": "LIVE",
+        "proba": 0.7513
+      },
+      {
+        "rank": 3,
+        "ticker": "WOMF",
+        "proba": 0.7403
+      }
+    ]
+  },
+  {
+    "date": "2026-02-06",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "DVLA",
+        "proba": 0.8751
+      },
+      {
+        "rank": 2,
+        "ticker": "GRIA",
+        "proba": 0.8285
+      },
+      {
+        "rank": 3,
+        "ticker": "SHIP",
+        "proba": 0.7865
+      }
+    ]
+  },
+  {
+    "date": "2026-02-09",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "PMUI",
+        "proba": 0.7113
+      },
+      {
+        "rank": 2,
+        "ticker": "CAMP",
+        "proba": 0.6982
+      },
+      {
+        "rank": 3,
+        "ticker": "PURI",
+        "proba": 0.6922
+      }
+    ]
+  },
+  {
+    "date": "2026-02-10",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "ATIC",
+        "proba": 0.8057
+      },
+      {
+        "rank": 2,
+        "ticker": "FPNI",
+        "proba": 0.7636
+      },
+      {
+        "rank": 3,
+        "ticker": "ALKA",
+        "proba": 0.7592
+      }
+    ]
+  },
+  {
+    "date": "2026-02-11",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "SCCO",
+        "proba": 0.7938
+      },
+      {
+        "rank": 2,
+        "ticker": "PMJS",
+        "proba": 0.7614
+      },
+      {
+        "rank": 3,
+        "ticker": "FOLK",
+        "proba": 0.7318
+      }
+    ]
+  },
+  {
+    "date": "2026-02-12",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "MGLV",
+        "proba": 0.7453
+      },
+      {
+        "rank": 2,
+        "ticker": "LUCY",
+        "proba": 0.7438
+      },
+      {
+        "rank": 3,
+        "ticker": "ROCK",
+        "proba": 0.7153
+      }
+    ]
+  },
+  {
+    "date": "2026-02-13",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "MGLV",
+        "proba": 0.7988
+      },
+      {
+        "rank": 2,
+        "ticker": "GLVA",
+        "proba": 0.771
+      },
+      {
+        "rank": 3,
+        "ticker": "WOMF",
+        "proba": 0.768
+      }
+    ]
+  },
+  {
+    "date": "2026-02-18",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "RMKO",
+        "proba": 0.7683
+      },
+      {
+        "rank": 2,
+        "ticker": "CASA",
+        "proba": 0.7529
+      },
+      {
+        "rank": 3,
+        "ticker": "AMAR",
+        "proba": 0.7326
+      }
+    ]
+  },
+  {
+    "date": "2026-02-19",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "ARKO",
+        "proba": 0.7367
+      },
+      {
+        "rank": 2,
+        "ticker": "KOCI",
+        "proba": 0.7313
+      },
+      {
+        "rank": 3,
+        "ticker": "LUCY",
+        "proba": 0.7179
+      }
+    ]
+  },
+  {
+    "date": "2026-02-20",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "AGII",
+        "proba": 0.7303
+      },
+      {
+        "rank": 2,
+        "ticker": "TYRE",
+        "proba": 0.6413
+      },
+      {
+        "rank": 3,
+        "ticker": "TAYS",
+        "proba": 0.6309
+      }
+    ]
+  },
+  {
+    "date": "2026-02-23",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "TRUS",
+        "proba": 0.7432
+      },
+      {
+        "rank": 2,
+        "ticker": "MEGA",
+        "proba": 0.7151
+      },
+      {
+        "rank": 3,
+        "ticker": "RDTX",
+        "proba": 0.6782
+      }
+    ]
+  },
+  {
+    "date": "2026-02-24",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "MEGA",
+        "proba": 0.7875
+      },
+      {
+        "rank": 2,
+        "ticker": "TFAS",
+        "proba": 0.7459
+      },
+      {
+        "rank": 3,
+        "ticker": "AIMS",
+        "proba": 0.7159
+      }
+    ]
+  },
+  {
+    "date": "2026-02-25",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "HDFA",
+        "proba": 0.7041
+      },
+      {
+        "rank": 2,
+        "ticker": "RANC",
+        "proba": 0.6953
+      },
+      {
+        "rank": 3,
+        "ticker": "MTLA",
+        "proba": 0.6712
+      }
+    ]
+  },
+  {
+    "date": "2026-02-26",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "ADMG",
+        "proba": 0.8183
+      },
+      {
+        "rank": 2,
+        "ticker": "MGLV",
+        "proba": 0.6899
+      },
+      {
+        "rank": 3,
+        "ticker": "SAMF",
+        "proba": 0.6115
+      }
+    ]
+  },
+  {
+    "date": "2026-02-27",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "INCI",
+        "proba": 0.6776
+      },
+      {
+        "rank": 2,
+        "ticker": "GGRM",
+        "proba": 0.6649
+      },
+      {
+        "rank": 3,
+        "ticker": "JTPE",
+        "proba": 0.6595
+      }
+    ]
+  },
+  {
+    "date": "2026-03-02",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "OILS",
+        "proba": 0.6814
+      },
+      {
+        "rank": 2,
+        "ticker": "PMJS",
+        "proba": 0.6804
+      },
+      {
+        "rank": 3,
+        "ticker": "BBSI",
+        "proba": 0.6636
+      }
+    ]
+  },
+  {
+    "date": "2026-03-03",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "RAAM",
+        "proba": 0.7961
+      },
+      {
+        "rank": 2,
+        "ticker": "PEHA",
+        "proba": 0.7325
+      },
+      {
+        "rank": 3,
+        "ticker": "SAME",
+        "proba": 0.7307
+      }
+    ]
+  },
+  {
+    "date": "2026-03-04",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "EURO",
+        "proba": 0.7775
+      },
+      {
+        "rank": 2,
+        "ticker": "MAPB",
+        "proba": 0.7596
+      },
+      {
+        "rank": 3,
+        "ticker": "HELI",
+        "proba": 0.728
+      }
+    ]
+  },
+  {
+    "date": "2026-03-05",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "VOKS",
+        "proba": 0.8018
+      },
+      {
+        "rank": 2,
+        "ticker": "GTRA",
+        "proba": 0.797
+      },
+      {
+        "rank": 3,
+        "ticker": "PDPP",
+        "proba": 0.7889
+      }
+    ]
+  },
+  {
+    "date": "2026-03-06",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "KEJU",
+        "proba": 0.8368
+      },
+      {
+        "rank": 2,
+        "ticker": "KBLM",
+        "proba": 0.8093
+      },
+      {
+        "rank": 3,
+        "ticker": "IMAS",
+        "proba": 0.7838
+      }
+    ]
+  },
+  {
+    "date": "2026-03-09",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "VRNA",
+        "proba": 0.8832
+      },
+      {
+        "rank": 2,
+        "ticker": "DWGL",
+        "proba": 0.863
+      },
+      {
+        "rank": 3,
+        "ticker": "TFAS",
+        "proba": 0.8576
+      }
+    ]
+  },
+  {
+    "date": "2026-03-10",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "CRSN",
+        "proba": 0.8071
+      },
+      {
+        "rank": 2,
+        "ticker": "DNET",
+        "proba": 0.7351
+      },
+      {
+        "rank": 3,
+        "ticker": "RUNS",
+        "proba": 0.7213
+      }
+    ]
+  },
+  {
+    "date": "2026-03-11",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "OPMS",
+        "proba": 0.7993
+      },
+      {
+        "rank": 2,
+        "ticker": "OBMD",
+        "proba": 0.7769
+      },
+      {
+        "rank": 3,
+        "ticker": "LION",
+        "proba": 0.7722
+      }
+    ]
+  },
+  {
+    "date": "2026-03-12",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "INCI",
+        "proba": 0.7747
+      },
+      {
+        "rank": 2,
+        "ticker": "LINK",
+        "proba": 0.7565
+      },
+      {
+        "rank": 3,
+        "ticker": "TALF",
+        "proba": 0.73
+      }
+    ]
+  },
+  {
+    "date": "2026-03-13",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "ROCK",
+        "proba": 0.8175
+      },
+      {
+        "rank": 2,
+        "ticker": "MBTO",
+        "proba": 0.7726
+      },
+      {
+        "rank": 3,
+        "ticker": "BVIC",
+        "proba": 0.7714
+      }
+    ]
+  },
+  {
+    "date": "2026-03-16",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "GSMF",
+        "proba": 0.8337
+      },
+      {
+        "rank": 2,
+        "ticker": "FMII",
+        "proba": 0.8082
+      },
+      {
+        "rank": 3,
+        "ticker": "CBUT",
+        "proba": 0.7645
+      }
+    ]
+  },
+  {
+    "date": "2026-03-17",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "ROCK",
+        "proba": 0.7545
+      },
+      {
+        "rank": 2,
+        "ticker": "CAMP",
+        "proba": 0.7508
+      },
+      {
+        "rank": 3,
+        "ticker": "EAST",
+        "proba": 0.7396
+      }
+    ]
+  },
+  {
+    "date": "2026-03-25",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "JRPT",
+        "proba": 0.8083
+      },
+      {
+        "rank": 2,
+        "ticker": "ARII",
+        "proba": 0.7486
+      },
+      {
+        "rank": 3,
+        "ticker": "MRAT",
+        "proba": 0.7377
+      }
+    ]
+  },
+  {
+    "date": "2026-03-26",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "RGAS",
+        "proba": 0.8282
+      },
+      {
+        "rank": 2,
+        "ticker": "CRSN",
+        "proba": 0.793
+      },
+      {
+        "rank": 3,
+        "ticker": "BNLI",
+        "proba": 0.7736
+      }
+    ]
+  },
+  {
+    "date": "2026-03-27",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "BATR",
+        "proba": 0.8381
+      },
+      {
+        "rank": 2,
+        "ticker": "BOAT",
+        "proba": 0.8296
+      },
+      {
+        "rank": 3,
+        "ticker": "JRPT",
+        "proba": 0.7879
+      }
+    ]
+  },
+  {
+    "date": "2026-03-30",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "CSIS",
+        "proba": 0.8492
+      },
+      {
+        "rank": 2,
+        "ticker": "DGNS",
+        "proba": 0.7977
+      },
+      {
+        "rank": 3,
+        "ticker": "BBHI",
+        "proba": 0.7808
+      }
+    ]
+  },
+  {
+    "date": "2026-03-31",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "MTLA",
+        "proba": 0.8254
+      },
+      {
+        "rank": 2,
+        "ticker": "SDPC",
+        "proba": 0.823
+      },
+      {
+        "rank": 3,
+        "ticker": "SAMF",
+        "proba": 0.7831
+      }
+    ]
+  },
+  {
+    "date": "2026-04-01",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "BELI",
+        "proba": 0.7697
+      },
+      {
+        "rank": 2,
+        "ticker": "TLDN",
+        "proba": 0.7647
+      },
+      {
+        "rank": 3,
+        "ticker": "PNSE",
+        "proba": 0.7593
+      }
+    ]
+  },
+  {
+    "date": "2026-04-02",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "PJAA",
+        "proba": 0.7929
+      },
+      {
+        "rank": 2,
+        "ticker": "BUMI",
+        "proba": 0.77
+      },
+      {
+        "rank": 3,
+        "ticker": "MSIN",
+        "proba": 0.7682
+      }
+    ]
+  },
+  {
+    "date": "2026-04-06",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "IFSH",
+        "proba": 0.7938
+      },
+      {
+        "rank": 2,
+        "ticker": "AISA",
+        "proba": 0.7892
+      },
+      {
+        "rank": 3,
+        "ticker": "BSIM",
+        "proba": 0.7799
+      }
+    ]
+  },
+  {
+    "date": "2026-04-07",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "TIRA",
+        "proba": 0.825
+      },
+      {
+        "rank": 2,
+        "ticker": "BSIM",
+        "proba": 0.777
+      },
+      {
+        "rank": 3,
+        "ticker": "BUAH",
+        "proba": 0.7684
+      }
+    ]
+  },
+  {
+    "date": "2026-04-08",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "KMTR",
+        "proba": 0.8404
+      },
+      {
+        "rank": 2,
+        "ticker": "ROCK",
+        "proba": 0.7866
+      },
+      {
+        "rank": 3,
+        "ticker": "DMND",
+        "proba": 0.7656
+      }
+    ]
+  },
+  {
+    "date": "2026-04-09",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "BBLD",
+        "proba": 0.6695
+      },
+      {
+        "rank": 2,
+        "ticker": "DOSS",
+        "proba": 0.5801
+      },
+      {
+        "rank": 3,
+        "ticker": "NATO",
+        "proba": 0.5797
+      }
+    ]
+  },
+  {
+    "date": "2026-04-10",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "ASPI",
+        "proba": 0.7446
+      },
+      {
+        "rank": 2,
+        "ticker": "TRUK",
+        "proba": 0.7129
+      },
+      {
+        "rank": 3,
+        "ticker": "SOLA",
+        "proba": 0.6766
+      }
+    ]
+  },
+  {
+    "date": "2026-04-13",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "AMAG",
+        "proba": 0.6988
+      },
+      {
+        "rank": 2,
+        "ticker": "DATA",
+        "proba": 0.6894
+      },
+      {
+        "rank": 3,
+        "ticker": "CITY",
+        "proba": 0.6876
+      }
+    ]
+  },
+  {
+    "date": "2026-04-14",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "MPIX",
+        "proba": 0.7288
+      },
+      {
+        "rank": 2,
+        "ticker": "OBAT",
+        "proba": 0.7209
+      },
+      {
+        "rank": 3,
+        "ticker": "PNGO",
+        "proba": 0.7186
+      }
+    ]
+  },
+  {
+    "date": "2026-04-15",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "IFII",
+        "proba": 0.6864
+      },
+      {
+        "rank": 2,
+        "ticker": "TALF",
+        "proba": 0.6493
+      },
+      {
+        "rank": 3,
+        "ticker": "PUDP",
+        "proba": 0.6299
+      }
+    ]
+  },
+  {
+    "date": "2026-04-16",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "BPFI",
+        "proba": 0.7664
+      },
+      {
+        "rank": 2,
+        "ticker": "NICE",
+        "proba": 0.7269
+      },
+      {
+        "rank": 3,
+        "ticker": "MDLA",
+        "proba": 0.6898
+      }
+    ]
+  },
+  {
+    "date": "2026-04-17",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "RIGS",
+        "proba": 0.821
+      },
+      {
+        "rank": 2,
+        "ticker": "SPMA",
+        "proba": 0.8005
+      },
+      {
+        "rank": 3,
+        "ticker": "NIRO",
+        "proba": 0.7301
+      }
+    ]
+  },
+  {
+    "date": "2026-04-20",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "VINS",
+        "proba": 0.5505
+      },
+      {
+        "rank": 2,
+        "ticker": "MTMH",
+        "proba": 0.5395
+      },
+      {
+        "rank": 3,
+        "ticker": "CEKA",
+        "proba": 0.525
+      }
+    ]
+  },
+  {
+    "date": "2026-04-21",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "PUDP",
+        "proba": 0.7935
+      },
+      {
+        "rank": 2,
+        "ticker": "BSDE",
+        "proba": 0.7844
+      },
+      {
+        "rank": 3,
+        "ticker": "GOOD",
+        "proba": 0.7722
+      }
+    ]
+  },
+  {
+    "date": "2026-04-22",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "KAEF",
+        "proba": 0.826
+      },
+      {
+        "rank": 2,
+        "ticker": "KOPI",
+        "proba": 0.8191
+      },
+      {
+        "rank": 3,
+        "ticker": "SMMT",
+        "proba": 0.8084
+      }
+    ]
+  },
+  {
+    "date": "2026-04-23",
+    "picks": [
+      {
+        "rank": 1,
+        "ticker": "SDPC",
+        "proba": 0.807
+      },
+      {
+        "rank": 2,
+        "ticker": "WOMF",
+        "proba": 0.8055
+      },
+      {
+        "rank": 3,
+        "ticker": "BUAH",
+        "proba": 0.7898
+      }
+    ]
+  }
+]
