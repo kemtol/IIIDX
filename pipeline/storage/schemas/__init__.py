@@ -6,6 +6,7 @@ source name (matching `pipeline.storage.config.L0_SOURCES`).
 """
 from __future__ import annotations
 
+from . import broksum as _broksum
 from . import global_indices as _global_indices
 from . import master_broker as _master_broker
 from . import master_emiten as _master_emiten
@@ -14,6 +15,7 @@ from . import yfinance_daily as _yfinance_daily
 from ._base import AUDIT_INSERTED, AUDIT_UPDATED, ColumnDef, TableSchema
 
 SCHEMAS: dict[str, TableSchema] = {
+    _broksum.SCHEMA.source: _broksum.SCHEMA,
     _global_indices.SCHEMA.source: _global_indices.SCHEMA,
     _master_emiten.SCHEMA.source: _master_emiten.SCHEMA,
     _master_broker.SCHEMA.source: _master_broker.SCHEMA,

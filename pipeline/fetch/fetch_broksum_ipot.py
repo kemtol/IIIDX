@@ -438,13 +438,18 @@ def flush_broker_rows_to_store(
     broker_rows: pd.DataFrame,
     *,
     broker: str,
+    stage=None,
 ) -> dict[str, int]:
     """
     Flush one broker chunk into parquet store with upsert semantics.
-    NOTE: single-file parquet means this rewrites the file each flush.
+    If stage is provided, appends to DuckDB staging (crash-safe).
     """
     if broker_rows is None or broker_rows.empty:
         return {"before_rows": 0, "after_rows": 0, "delta_rows": 0}
+
+    if stage is not None:
+        stage.append(broker_rows)
+        return {"before_rows": 0, "after_rows": len(broker_rows), "delta_rows": len(broker_rows)}
 
     if parquet_store.exists():
         existing_df = pd.read_parquet(parquet_store)
@@ -930,8 +935,11 @@ def flatten_to_master(data_list: list[dict]) -> list[dict]:
     return rows
 
 
-def save_to_parquet(df: pd.DataFrame, output_path: Path):
-    """Save DataFrame to parquet."""
+def save_to_parquet(df: pd.DataFrame, output_path: Path, stage=None):
+    """Save DataFrame to parquet. If stage is provided, append to DuckDB staging."""
+    if stage is not None:
+        stage.append(df)
+        return
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
     # Sort for optimal query performance
@@ -971,6 +979,18 @@ def print_summary(df: pd.DataFrame):
 
 
 async def main():
+    # ── Staging-wrapper: use DuckDB TEMP if schema registered ──
+    _stage = None
+    try:
+        from pipeline.storage.schemas import SCHEMAS
+        if "broksum" in SCHEMAS:
+            from pipeline.storage.staging import open_staging
+            _stage_ctx = open_staging("broksum")
+            _stage = _stage_ctx.__enter__()
+            print(f"\n=== IPOT Scraper -> broksum_bybroker.parquet (staging mode) ===", flush=True)
+    except ImportError:
+        pass
+
     parser = argparse.ArgumentParser(description="Fetch broker data directly from IPOT")
     parser.add_argument("--broker", type=str, help="Single broker code (e.g., MG)")
     parser.add_argument("--date", type=str, help="Single date (YYYY-MM-DD)")
@@ -1343,6 +1363,7 @@ async def main():
                             parquet_store,
                             broker_raw_df,
                             broker=broker,
+                            stage=_stage,
                         )
                         total_rows_flushed += fetched_rows
                     except Exception as e:
@@ -1483,7 +1504,7 @@ async def main():
                 merged_store_df = merge_append_with_upsert(existing_store_df, fetched_raw_df)
             else:
                 merged_store_df = fetched_raw_df.copy()
-            save_to_parquet(merged_store_df, parquet_store)
+            save_to_parquet(merged_store_df, parquet_store, stage=_stage)
             print(f"[Backfill] Parquet cache updated: {parquet_store}")
         except Exception as e:
             print(f"[Backfill] Failed updating parquet cache: {e}")
@@ -1556,7 +1577,7 @@ async def main():
                     print(f"[Append] Failed to merge existing parquet, fallback overwrite. error={e}")
 
             # Save to parquet
-            save_to_parquet(df, output_path)
+            save_to_parquet(df, output_path, stage=_stage)
 
             # Print summary
             print_summary(df)
@@ -1622,6 +1643,18 @@ async def main():
                 "date_until": date_until_tag,
             },
         )
+
+    # ── Staging commit: merge all staged → parquet ──
+    if _stage is not None:
+        try:
+            existing = pd.read_parquet(parquet_store) if parquet_store.exists() else pd.DataFrame()
+            if not existing.empty:
+                existing['date'] = existing['date'].astype(str)
+            rows_written = _stage.commit_to_l0(base_df=existing)
+            _stage.clear()
+            print(f"\n[staging] Committed {rows_written:,} rows, staging cleared", flush=True)
+        except Exception as e:
+            print(f"\n[staging] Commit error: {e}", flush=True)
 
     log_event(
         "backfill_run_complete",
