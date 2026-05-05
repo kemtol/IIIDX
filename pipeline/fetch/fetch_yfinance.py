@@ -18,6 +18,7 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -27,8 +28,23 @@ from typing import Any
 import pandas as pd
 import yfinance as yf
 
+# L0 storage gateway lives at repo root; ensure it is importable when this
+# script is invoked directly (`python pipeline/fetch/fetch_yfinance.py`).
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from pipeline.storage.schemas import SCHEMAS  # noqa: E402
+from pipeline.storage.staging import open_staging, staging_exists  # noqa: E402
+from pipeline.storage.writers import write_l0  # noqa: E402
 
 LOCAL_TZ = "Asia/Jakarta"
+
+# Storage source key per pipeline/storage/config.py. yfinance_4h is parquet-only
+# until its schema lands; gateway falls through to legacy write for unknown sources.
+_SOURCE_BY_INTERVAL = {
+    "1h": "yfinance_1h",
+}
 
 
 @dataclass(frozen=True)
@@ -147,16 +163,28 @@ def clean_intraday(raw: pd.DataFrame, ticker: str) -> pd.DataFrame | None:
     out = raw[[cols["open"], cols["high"], cols["low"], cols["close"], cols["volume"]]].copy()
     out.columns = required
 
+    # Normalize to UTC tz-aware. Yahoo returns tz-aware (typically exchange-local
+    # or UTC depending on symbol); we canonicalize to UTC so concat with existing
+    # parquet (UTC tz-aware) does not silently shift values. Historical bug:
+    # tz_localize(None) here previously stripped tz, then later promotion to
+    # UTC-tz on rewrite shifted values by 7h. Audit 2026-05-05 confirmed
+    # 734 trading days (2023-03-06..2026-04-27) corrupted by that path.
     idx = pd.to_datetime(out.index, errors="coerce")
     if getattr(idx, "tz", None) is not None:
-        idx = idx.tz_convert(LOCAL_TZ).tz_localize(None)
+        idx = idx.tz_convert("UTC")
     else:
-        idx = idx.tz_localize("UTC").tz_convert(LOCAL_TZ).tz_localize(None)
+        idx = idx.tz_localize("UTC")
 
     out.index = idx
     out.index.name = "datetime"
     out = out.sort_index()
-    out = out.between_time("09:00", "16:00")
+    # between_time on tz-aware index uses index tz; convert to LOCAL_TZ briefly
+    # for window selection, then back to UTC for storage.
+    local_idx = out.index.tz_convert(LOCAL_TZ)
+    mask = (local_idx.time >= pd.Timestamp("09:00").time()) & (
+        local_idx.time <= pd.Timestamp("16:00").time()
+    )
+    out = out.loc[mask]
     out = out.dropna(subset=["open", "close"])
     out = out[out["volume"].fillna(0) > 0]
 
@@ -206,7 +234,90 @@ def fetch_ticker_intraday(ticker: str, cfg: IntervalConfig, last_dt: pd.Timestam
     return None, f"no data after fallback ({last_err or 'unknown'})"
 
 
-def update_interval(data_dir: Path, tickers: list[str], cfg: IntervalConfig, pause_seconds: float) -> None:
+def _normalize_combined(combined: pd.DataFrame) -> pd.DataFrame:
+    """Drop legacy `__index_level_0__` and force UTC tz-aware datetime."""
+    if "__index_level_0__" in combined.columns:
+        combined = combined.drop(columns=["__index_level_0__"])
+    if "datetime" in combined.columns:
+        dt = pd.to_datetime(combined["datetime"], utc=True, errors="coerce")
+        combined = combined.assign(datetime=dt).dropna(subset=["datetime"])
+    return combined
+
+
+def _update_interval_with_staging(
+    data_dir: Path, tickers: list[str], cfg: IntervalConfig, pause_seconds: float, source: str
+) -> None:
+    """Crash-resilient variant: persist per-ticker chunks to DuckDB staging.
+
+    A crash mid-loop preserves staged rows; the next run resumes by computing
+    last_dt from existing parquet UNION staging. After all tickers fetch
+    successfully, staging is merged with existing parquet and written
+    atomically via `write_l0()`. Staging is then truncated.
+    """
+    out_path = data_dir / cfg.output_name
+    existing = load_existing(out_path)
+
+    print(f"\n=== Fetch {cfg.interval} -> {out_path} (staging mode) ===", flush=True)
+    print(
+        f"tickers: {len(tickers)} | existing_rows: {len(existing)} | "
+        f"staging_resume: {staging_exists(source)}",
+        flush=True,
+    )
+
+    errors = 0
+    skips = 0
+    staged_count = 0
+
+    with open_staging(source) as stage:
+        # Combine existing + already-staged to compute resume point per ticker.
+        # If a previous run crashed, this picks up where it left off.
+        last_map = stage.last_seen_per_ticker(base_df=existing)
+        prior_staged = stage.staged_count()
+        if prior_staged:
+            print(f"  resuming over {prior_staged} previously-staged rows", flush=True)
+
+        for i, ticker in enumerate(tickers, start=1):
+            last_dt = last_map.get(ticker)
+            new_df, status = fetch_ticker_intraday(ticker, cfg, last_dt)
+
+            icon = "✓" if status.startswith("ok") or status.startswith("skipped") else "✗"
+            print(f"[{i:4d}/{len(tickers)}] {icon} {ticker:<12} {status}", flush=True)
+
+            if status.startswith("error"):
+                errors += 1
+            if status.startswith("skipped"):
+                skips += 1
+
+            if new_df is not None and not new_df.empty:
+                # Per-ticker COMMIT — durable across crashes.
+                stage.append(new_df)
+                staged_count += len(new_df)
+
+            if pause_seconds > 0:
+                time.sleep(pause_seconds)
+
+        # All tickers iterated — merge staged with existing and write atomically.
+        # commit_to_l0 calls write_l0 which uses tmp+rename for the parquet path.
+        # Only after this returns do we clear() — so a crash here leaves staging
+        # intact for the next run to recover.
+        rows_written = stage.commit_to_l0(base_df=_normalize_combined(existing))
+        stage.clear()
+
+    print(
+        f"[done] interval={cfg.interval} rows={rows_written} "
+        f"newly_staged={staged_count} errors={errors} skipped={skips}",
+        flush=True,
+    )
+
+
+def _update_interval_inmemory(
+    data_dir: Path, tickers: list[str], cfg: IntervalConfig, pause_seconds: float
+) -> None:
+    """Legacy in-memory path for intervals without a registered L0 schema.
+
+    Still atomic at write (tmp+rename) but offers no crash resilience during
+    the fetch loop — a mid-loop crash loses everything not yet persisted.
+    """
     out_path = data_dir / cfg.output_name
     existing = load_existing(out_path)
     last_map: dict[str, pd.Timestamp] = {}
@@ -217,7 +328,7 @@ def update_interval(data_dir: Path, tickers: list[str], cfg: IntervalConfig, pau
     errors = 0
     skips = 0
 
-    print(f"\n=== Fetch {cfg.interval} -> {out_path} ===", flush=True)
+    print(f"\n=== Fetch {cfg.interval} -> {out_path} (in-memory mode) ===", flush=True)
     print(f"tickers: {len(tickers)} | existing_rows: {len(existing)}", flush=True)
 
     for i, ticker in enumerate(tickers, start=1):
@@ -246,13 +357,42 @@ def update_interval(data_dir: Path, tickers: list[str], cfg: IntervalConfig, pau
     else:
         combined = existing.sort_values(["datetime", "ticker"]).reset_index(drop=True) if not existing.empty else existing
 
+    combined = _normalize_combined(combined)
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    combined.to_parquet(out_path, index=False)
+    tmp_path = out_path.with_suffix(out_path.suffix + ".tmp")
+    combined.to_parquet(tmp_path, index=False)
+    tmp_path.replace(out_path)
 
     print(
         f"[done] interval={cfg.interval} rows={len(combined)} "
-        f"new_chunks={len(new_frames)} errors={errors} skipped={skips}"
-    , flush=True)
+        f"new_chunks={len(new_frames)} errors={errors} skipped={skips}",
+        flush=True,
+    )
+
+
+def update_interval(data_dir: Path, tickers: list[str], cfg: IntervalConfig, pause_seconds: float) -> None:
+    """Dispatch to staging-mode (crash-resilient) or in-memory mode by source.
+
+    Staging mode requires a registered L0 schema; otherwise we fall back to
+    the legacy in-memory path with atomic write.
+    """
+    out_path = data_dir / cfg.output_name
+    source = _SOURCE_BY_INTERVAL.get(cfg.interval)
+
+    if source and source in SCHEMAS:
+        # Sanity: gateway always writes to the schema path. If --data-dir was
+        # overridden, warn rather than silently writing to a different location.
+        schema_path = (_REPO_ROOT / SCHEMAS[source].parquet_path).resolve()
+        if out_path.resolve() != schema_path:
+            print(
+                f"[warn] interval={cfg.interval} out_path={out_path} differs from "
+                f"schema path {schema_path}; gateway will write to schema path.",
+                flush=True,
+            )
+        _update_interval_with_staging(data_dir, tickers, cfg, pause_seconds, source)
+    else:
+        _update_interval_inmemory(data_dir, tickers, cfg, pause_seconds)
 
 
 def main() -> int:

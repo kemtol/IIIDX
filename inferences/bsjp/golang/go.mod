@@ -1,6 +1,6 @@
 module github.com/mmmachine/bsjp
 
-go 1.26
+go 1.22
 
 require (
 	github.com/marcboeker/go-duckdb v1.8.0

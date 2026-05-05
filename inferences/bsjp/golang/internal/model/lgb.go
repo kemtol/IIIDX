@@ -144,6 +144,12 @@ func (m *LightGBM) Predict(features map[string]float64) float64 {
 	return m.predictVec(vec)
 }
 
+// NumTrees returns the number of trees in the model.
+func (m *LightGBM) NumTrees() int { return len(m.trees) }
+
+// NumFeatures returns the number of features in the model.
+func (m *LightGBM) NumFeatures() int { return m.nFeatures }
+
 func (m *LightGBM) predictVec(vec []float64) float64 {
 	var rawScore float64
 	for _, t := range m.trees {

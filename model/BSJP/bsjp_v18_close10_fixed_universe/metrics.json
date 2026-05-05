@@ -1,0 +1,220 @@
+{
+  "status": "FAIL:NEGATIVE_OOT_EXPECTANCY",
+  "northstar": {
+    "capital_idr": 10000000.0,
+    "strategy": "BSJP close10",
+    "entry_time": "15:xx",
+    "entry_rule": "buy near close on day T using hour-15 close as proxy",
+    "exit_time": "10:xx T+1",
+    "exit_rule": "sell next trading day using hour-10 open as proxy",
+    "target": "positive_net_expectancy_after_costs"
+  },
+  "data": {
+    "training_path": "data/Level_2_Datamart/training_datamart_bsjp_close10_fixed_universe.parquet",
+    "rows_total": 105793,
+    "trading_days_total": 731,
+    "date_min": "2023-03-07",
+    "date_max": "2026-04-24",
+    "pre_oot_days": 631,
+    "oot_days": 100
+  },
+  "hard_rules": {
+    "min_history_required_days": 120,
+    "min_history_observed_days": 731,
+    "no_random_split": true,
+    "no_lookahead_features": true
+  },
+  "features": {
+    "selected_count": 249,
+    "dropped_columns": [
+      "has_yf_1h_max",
+      "has_yf_4h_max",
+      "has_yf_daily_max"
+    ],
+    "feature_prune_top_n": 0,
+    "feature_source": "disabled",
+    "ranked_candidates_count": 0
+  },
+  "walkforward": {
+    "folds": 4,
+    "fold_valid_days": 20,
+    "metrics": [
+      {
+        "fold": 1,
+        "train_days": 551,
+        "valid_days": 20,
+        "valid_rows": 2316,
+        "auc": 0.7076132254455237,
+        "aucpr": 0.5714374593291429,
+        "logloss": 0.6103357882811223,
+        "brier": 0.2122692334847848,
+        "precision_at_0.5": 0.5171270718232044,
+        "recall_at_0.5": 0.563855421686747,
+        "f1_at_0.5": 0.5394812680115274,
+        "positive_rate": 0.35837651122625214
+      },
+      {
+        "fold": 2,
+        "train_days": 571,
+        "valid_days": 20,
+        "valid_rows": 2012,
+        "auc": 0.646084892210792,
+        "aucpr": 0.5002361586096296,
+        "logloss": 0.6447923774660417,
+        "brier": 0.22626535580520554,
+        "precision_at_0.5": 0.5,
+        "recall_at_0.5": 0.0013679890560875513,
+        "f1_at_0.5": 0.002728512960436562,
+        "positive_rate": 0.3633200795228628
+      },
+      {
+        "fold": 3,
+        "train_days": 591,
+        "valid_days": 20,
+        "valid_rows": 2155,
+        "auc": 0.6523573559393593,
+        "aucpr": 0.5324419605234227,
+        "logloss": 0.6237051067009227,
+        "brier": 0.2170338733114102,
+        "precision_at_0.5": 0.5583333333333333,
+        "recall_at_0.5": 0.3379571248423707,
+        "f1_at_0.5": 0.42105263157894735,
+        "positive_rate": 0.3679814385150812
+      },
+      {
+        "fold": 4,
+        "train_days": 611,
+        "valid_days": 20,
+        "valid_rows": 2328,
+        "auc": 0.6758811515693384,
+        "aucpr": 0.5247385437532057,
+        "logloss": 0.6329551698824142,
+        "brier": 0.22050182270228696,
+        "precision_at_0.5": 0.0,
+        "recall_at_0.5": 0.0,
+        "f1_at_0.5": 0.0,
+        "positive_rate": 0.3397766323024055
+      }
+    ],
+    "policy_selected": {
+      "mode": "threshold",
+      "p_cut": 0.035,
+      "max_positions": 3,
+      "max_weight_per_name": 0.34
+    },
+    "policy_cv_summary": {
+      "days": 80,
+      "trading_days": 80,
+      "mean_daily_net_return": 0.007295466299268226,
+      "mean_daily_gross_return": 0.03961873483308524,
+      "mean_effective_threshold": 0.49513092276925563,
+      "net_expectancy_per_trade": 0.0071668510331620175,
+      "win_rate_days": 0.425,
+      "cumulative_net_return": 0.6346095937705314,
+      "max_drawdown": -0.25593975256746304,
+      "volatility_daily": 0.04847209028263913
+    }
+  },
+  "model": {
+    "type": "lightgbm.LGBMClassifier",
+    "best_iteration": 21,
+    "params": {
+      "n_estimators": 4000,
+      "learning_rate": 0.02,
+      "num_leaves": 63,
+      "max_depth": 6,
+      "min_data_in_leaf": 50,
+      "feature_fraction": 0.6,
+      "bagging_fraction": 0.8,
+      "bagging_freq": 1,
+      "lambda_l1": 0.5,
+      "lambda_l2": 0.5,
+      "min_gain_to_split": 0.01,
+      "model_objective": "binary",
+      "scale_pos_weight": "auto",
+      "early_stopping_rounds": 200
+    }
+  },
+  "metrics": {
+    "train_core": {
+      "auc": 0.6818159611323348,
+      "aucpr": 0.5293650994536574,
+      "logloss": 0.6301669837345086,
+      "brier": 0.21935282338723897,
+      "precision_at_0.5": 0.9369369369369369,
+      "recall_at_0.5": 0.003338469440164355,
+      "f1_at_0.5": 0.006653232255381761,
+      "positive_rate": 0.34304969771718663
+    },
+    "oot_valid": {
+      "auc": 0.6375983641124245,
+      "aucpr": 0.47846904759199443,
+      "logloss": 0.6412741708850498,
+      "brier": 0.22460593741153098,
+      "precision_at_0.5": 0.0,
+      "recall_at_0.5": 0.0,
+      "f1_at_0.5": 0.0,
+      "positive_rate": 0.3550094816687737
+    },
+    "oot_daily_topk": {
+      "k=5": {
+        "precision_mean": 0.616,
+        "hit_rate_any_tp": 0.98,
+        "days": 100,
+        "rows": 500
+      },
+      "k=10": {
+        "precision_mean": 0.575,
+        "hit_rate_any_tp": 1.0,
+        "days": 100,
+        "rows": 1000
+      },
+      "k=20": {
+        "precision_mean": 0.5280000000000001,
+        "hit_rate_any_tp": 1.0,
+        "days": 100,
+        "rows": 2000
+      }
+    },
+    "overfit_gap": {
+      "auc_train_minus_oot": 0.04421759701991024,
+      "aucpr_train_minus_oot": 0.05089605186166296
+    },
+    "portfolio_oot": {
+      "days": 100,
+      "trading_days": 100,
+      "mean_daily_net_return": -0.004233523976719301,
+      "mean_daily_gross_return": 0.026513212397179426,
+      "mean_effective_threshold": 0.42584923378515016,
+      "net_expectancy_per_trade": -0.004353758552469905,
+      "win_rate_days": 0.37,
+      "cumulative_net_return": -0.4163639725944084,
+      "max_drawdown": -0.5022993660896377,
+      "volatility_daily": 0.048132841823368036
+    }
+  },
+  "cost_assumptions": {
+    "buy_cost_bps": 10.0,
+    "sell_cost_bps": 20.0,
+    "slippage_bps_per_side": 5.0,
+    "total_cost_fraction_per_roundtrip": 0.004,
+    "execution_model": "market",
+    "note": "'limit': fills at entry_price/exit_price with fixed broker cost. 'market': adds IDX tick-based bid-ask spread per pick (buy on ask, sell on bid)."
+  },
+  "execution": {
+    "conviction_top_k": 3,
+    "conviction_min_proba": 0.035,
+    "use_adaptive_threshold": true,
+    "adaptive_threshold_quantile": 0.85,
+    "tp_pct": 0.01,
+    "sl_pct": -0.02,
+    "mean_effective_threshold_oot": 0.42584923378515016
+  },
+  "artifacts": {
+    "model_path": "model/BSJP/bsjp_v18_close10_fixed_universe_test/model_lightgbm_opening_tp3.txt",
+    "feature_importance_path": "model/BSJP/bsjp_v18_close10_fixed_universe_test/feature_importance.csv",
+    "valid_predictions_path": "model/BSJP/bsjp_v18_close10_fixed_universe_test/valid_predictions.parquet",
+    "portfolio_daily_path": "model/BSJP/bsjp_v18_close10_fixed_universe_test/portfolio_daily.parquet",
+    "walkforward_metrics_path": "model/BSJP/bsjp_v18_close10_fixed_universe_test/walkforward_metrics.csv"
+  }
+}

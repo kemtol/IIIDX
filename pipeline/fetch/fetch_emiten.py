@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,17 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 import pandas as pd
+
+# L0 storage gateway lives at repo root; ensure it is importable when this
+# script is invoked directly (`python pipeline/fetch/fetch_emiten.py`).
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from pipeline.storage.schemas import SCHEMAS  # noqa: E402
+from pipeline.storage.writers import write_l0  # noqa: E402
+
+_SOURCE = "master_emiten"
 
 DEFAULT_API_BASE = "https://api-saham.mkemalw.workers.dev"
 BASE_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -254,10 +266,18 @@ def main() -> int:
         source_label = "idx_direct"
 
     df = normalize_rows(raw_rows, source_label)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(args.output, index=False)
 
-    print(f"[ok] source={args.source} rows={len(df)} output={args.output}")
+    # Gateway write: parquet path is canonicalized by the schema. write_l0
+    # also handles dual-write to DuckDB once the canary flag is promoted.
+    schema_path = (_REPO_ROOT / SCHEMAS[_SOURCE].parquet_path).resolve()
+    if args.output.resolve() != schema_path:
+        print(
+            f"[warn] --output={args.output} differs from schema path "
+            f"{schema_path}; gateway will write to schema path."
+        )
+    write_l0(_SOURCE, df)
+
+    print(f"[ok] source={args.source} rows={len(df)} output={schema_path}")
     if not df.empty:
         print(df.head(10).to_string(index=False))
     return 0

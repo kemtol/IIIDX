@@ -22,6 +22,8 @@ from pathlib import Path
 import pandas as pd
 import yfinance as yf
 
+_src = "yfinance_daily"
+
 
 def parse_args() -> argparse.Namespace:
     service_dir = Path(__file__).resolve().parent
@@ -187,6 +189,70 @@ def fetch_daily_for_ticker(
     return None, f"no data after fallback ({last_error or 'unknown'})"
 
 
+def _update_daily_with_staging(
+    data_dir: Path, tickers: list[str], existing: pd.DataFrame,
+    args: argparse.Namespace,
+) -> None:
+    """Crash-resilient variant using DuckDB staging (same pattern as yf 1h)."""
+    from pipeline.storage.staging import open_staging
+
+    out_path = args.output
+    print(f"\n=== Fetch daily -> {out_path} (staging mode) ===", flush=True)
+
+    errors = 0
+    skips = 0
+    staged_count = 0
+
+    with open_staging(_src) as stage:
+        last_map = stage.last_seen_per_ticker(base_df=existing, time_col="date")
+        # Normalize to tz-naive for comparison with datetime.now()
+        last_map = {k: v.tz_localize(None) if getattr(v, 'tz', None) else v
+                    for k, v in last_map.items()}
+
+        for idx, ticker in enumerate(tickers, start=1):
+            last_date = last_map.get(ticker)
+            new_df, status = fetch_daily_for_ticker(
+                ticker, last_date,
+                min_fetch_days=args.min_fetch_days,
+                buffer_days=args.buffer_days,
+                max_fetch_days=args.max_fetch_days,
+            )
+            icon = "✓" if status.startswith("ok") or status.startswith("skipped") else "✗"
+            print(f"[{idx:4d}/{len(tickers)}] {icon} {ticker:<12} {status}")
+            if status.startswith("skipped"):
+                skips += 1
+            if status.startswith("no data"):
+                errors += 1
+            if new_df is not None and not new_df.empty:
+                stage.append(new_df)
+                staged_count += 1
+            if args.pause_seconds > 0:
+                time.sleep(args.pause_seconds)
+
+        existing_tz = existing.copy()
+        if not existing_tz.empty:
+            existing_tz['date'] = pd.to_datetime(existing_tz['date'], utc=True).dt.tz_convert('Asia/Jakarta')
+
+        rows_written = stage.commit_to_l0(base_df=existing_tz)
+        stage.clear()
+
+    # Post-commit: normalize parquet to tz-naive (pandas-compatible)
+    import pyarrow.parquet as pq, pyarrow as pa
+    import duckdb
+    norm_db = duckdb.connect(':memory:')
+    norm_db.execute(f"CREATE TABLE t AS SELECT date::DATE as date, ticker, open, high, low, close, volume FROM read_parquet('{out_path}')")
+    norm_df = norm_db.execute("SELECT * FROM t ORDER BY date, ticker").df()
+    norm_df['date'] = pd.to_datetime(norm_df['date'])
+    pq.write_table(pa.Table.from_pandas(norm_df), out_path, compression='zstd')
+    norm_db.close()
+
+    print(
+        f"[done] daily rows={rows_written} staged={staged_count} "
+        f"errors={errors} skipped={skips}",
+        flush=True,
+    )
+
+
 def main() -> int:
     args = parse_args()
 
@@ -210,6 +276,17 @@ def main() -> int:
     print(f"Ticker count  : {len(tickers)}")
     print(f"Existing rows : {len(existing):,}")
     print(f"Start time    : {datetime.now().isoformat()}")
+
+    # Staging-mode dispatch: use DuckDB TEMP if schema registered, else legacy
+    try:
+        from pipeline.storage.schemas import SCHEMAS
+        if _src in SCHEMAS:
+            _update_daily_with_staging(args.output.parent, tickers, existing, args)
+            return 0
+    except ImportError:
+        pass
+
+    # Legacy in-memory path
 
     fresh_frames: list[pd.DataFrame] = []
     errors = 0

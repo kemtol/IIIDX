@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/parquet-go/parquet-go"
@@ -48,7 +49,8 @@ func ComputeYfDaily(parquetPath, targetDate string) ([]YfRow, error) {
 		if r.Date.Before(tMinus120) || r.Date.After(tMinus1) {
 			continue
 		}
-		tickerDays[r.Ticker] = append(tickerDays[r.Ticker], yfDay{
+		t := strings.TrimSuffix(r.Ticker, ".JK")
+		tickerDays[t] = append(tickerDays[t], yfDay{
 			date: r.Date, open: r.Open, high: r.High,
 			low: r.Low, close: r.Close, volume: r.Volume,
 		})

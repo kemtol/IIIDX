@@ -26,7 +26,24 @@
       "Bash(mv /home/kemal/idx/** /home/kemal/idx/**)",
       "Bash(cp /home/kemal/idx/** /home/kemal/idx/**)",
       "Bash(rm /home/kemal/idx/**)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(/home/kemal/.venv/bin/python *)",
+      "Bash(/home/kemal/.venv/bin/pip install *)",
+      "Bash(command -v pip pip3 uv pipx)",
+      "Bash(/home/kemal/.local/bin/uv pip *)",
+      "Bash(PYTHONPATH=/home/kemal/idx /home/kemal/.venv/bin/python pipeline/migrations/0003_phase0_init.py)",
+      "Bash(git check-ignore *)",
+      "Bash(grep -nB1 -A2 \"ipot\" /home/kemal/idx/data/README.md)",
+      "Bash(grep -nB1 -A1 \"ipot\" /home/kemal/idx/program.md)",
+      "Bash(env)",
+      "Bash(git -C /home/kemal/idx status --short)",
+      "Bash(grep -E \"\\(\\\\.md$|\\\\.py$|\\\\.sh$|\\\\.txt$|\\\\.duckdb\\)\")",
+      "Bash(python3 -c ' *)",
+      "Bash(python3)",
+      "Bash(ps -eo pid,etime,cmd --no-headers)",
+      "Bash(../.venv/bin/python -m pytest pipeline/storage/tests/test_continuity.py -v)",
+      "Bash(../.venv/bin/python *)"
     ]
   }
 }

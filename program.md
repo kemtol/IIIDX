@@ -182,7 +182,18 @@ idx/
 │   ├── fetch/              ← L0 data acquisition
 │   ├── feature/            ← L1 feature engineering
 │   ├── plot/               ← Monte Carlo, P&L visualization
-│   └── run/                ← Cron shell scripts
+│   ├── run/                ← Cron shell scripts
+│   ├── storage/            ← L0 DuckDB abstraction (PRD 0003, Phase 0 done)
+│   │   ├── config.py       ← L0_SOURCES + canary feature flags
+│   │   ├── l0.py           ← L0_DB_FILES, attach_l0(), open_l0_writer()
+│   │   ├── writers.py      ← write_l0() flag-driven dual-write
+│   │   ├── readers.py      ← read_l0() with duckdb_read toggle
+│   │   ├── backup.py       ← 3-tier retention (weekly/monthly/yearly)
+│   │   ├── migrate.py      ← init_all() + CLI
+│   │   ├── schemas/        ← TableSchema per source (master_emiten only)
+│   │   ├── validators/     ← BaseValidator + per-dtype tolerance
+│   │   └── tests/          ← Continuity merge gate (pytest)
+│   └── migrations/         ← Phase migrations (0003_phase0_init done)
 │
 ├── data/                   ← Data lake (shared, 3-layer)
 │   ├── Level_0_Raw/
@@ -254,40 +265,153 @@ idx/
 |-----------|---------|--------|------------|
 | **Training model** | BSJP v17 | ✅ Reference | AUC 0.642, CumRet +3.44%/day, 305 trees, 100d OOT |
 | **Training model** | BSJP v18_fixed | ✅ Retrain | AUC 0.67, 28 trees, 100d OOT, fixed-L2 only |
-| **Training datamart** | `training_datamart_bsjp_overnight.parquet` (OLD) | ✅ CLEAN | 108,698 rows, pre-27-Apr labels |
-| **Training datamart** | `training_datamart_bsjp_overnight.parquet` (NEW) | ⚠️ DIVERGED | 110,236 rows, post-27-Apr labels differ |
-| **Training datamart** | `training_datamart_bsjp_overnight_fixed.parquet` | ✅ CARA PAKE | NEW rows + OLD core labels, 110,236 rows |
+| **Training model** | BSJP `v18_close10_rebuild` | 🟡 Model | AUC 0.650, 408 trees, raw k3/w34 MaxDD -35.6% |
+| **Paper-trade policy** | `v18_close10_rebuild_policy_w25` | 🟡 Candidate | k=3, max weight 25%, OOT +0.98%/day, MaxDD -28.2%, MC 100d P(loss)=1.78% |
+| **Training datamart** | OLD `training_datamart_bsjp_overnight.parquet` | ✅ v18 baseline | 108,698 rows, actually `bsjp_close10_sl2` (exit open@10), misleading filename |
+| **Training datamart** | NEW `training_datamart_bsjp_overnight.parquet` | ✅ true overnight | 110,236 rows, `bsjp_overnight_sl2` (exit open@09) |
+| **Training datamart** | `training_datamart_bsjp_close10_rebuild_v18like.parquet` | 🟡 v18-like | 108,698 rows, close10 label rebuilt on OLD row universe |
+| **Training datamart** | `training_datamart_bsjp_overnight_fixed.parquet` | ⚠️ HYBRID | NEW rows + OLD core labels; useful for forensics, semantically mixed |
 | **Feature modules** | 7 modules in `modules/` | ✅ ACTIVE | 252 features, PROVEN byte-identical OLD vs NEW |
 | **Inference (Python)** | `fetch.py` + `run.py --variant v15` | ✅ PRODUCTION | 3.35s fetch + 2.58s score |
-| **Inference (Go)** | `bsjp` binary | 🟡 PARTIAL | Tree-walk byte-identical ✅, CGO broker bug, yf_daily broken |
-| **Strategy** | BSJP overnight | ✅ ACTIVE | Entry close 15:xx, exit open 09:xx T+1 |
+| **Inference (Go)** | `bsjp` binary | ✅ ACTIVE | Tree-walk ✅, v19d ✅, v20 policy ✅. All features Go-native except broker timeflow/context (from bootstrap) |
+| **Strategy** | BSJP close10 | ✅ TARGET OBJECTIVE | Entry close 15:xx, exit open 10:xx T+1 |
+
+### L0 → DuckDB Migration (PRD 0003, Phase 0 Done — Phase 1 Quick Win Landed)
+
+| Item | Status |
+|---|---|
+| PRD 0003 (`_DOC/_PRD/0003_l0_to_duckdb.md`) | ✅ rev 0.5 — sequencing, canary pattern, feature flag state machine, continuity invariants, orphan source verdict |
+| `git init` baseline + `.gitignore` | ✅ done (commit `ce04e9c6`, 158 files) |
+| L0 parquet backup (`_BAK/L0_pre_duckdb_20260429/`) | ✅ done (193 MB, 10 files) |
+| `duckdb==1.5.2` pinned in `requirements.txt` | ✅ done |
+| **B1** — foundation library (`config.py`, `schemas/_base.py`) | ✅ done |
+| **B2** — first concrete schema (`schemas/master_emiten.py`) | ✅ done (roundtrip 773 rows verified) |
+| **B3** — dual-write engine (`l0.py`, `writers.py`, `readers.py`, `validators/_base.py`) | ✅ done (7 e2e tests pass) |
+| **B5** — continuity merge gate (`tests/test_continuity.py`) | ✅ done (pytest 4/4 — auto-extended to master_broker) |
+| **B4** — backup + migrate + `0003_phase0_init.py` | ✅ done (7 e2e tests pass; backup roundtrip via `IMPORT DATABASE` verified) |
+| Run scripts (`run_backup_l0_duckdb.sh`, `run_validate_l0_duckdb.sh`) | ✅ done (live smoke test on stage 0; force-Sunday backup roundtrip clean) |
+| Bootstrap real `master.duckdb` | ✅ done (1.3 MB) |
+| **Phase 1 quick win**: `master_emiten` + `master_broker` schemas + initial bulk load via `0003_phase1_master.py` | ✅ done (773 + 92 rows; validator parity 0 diffs) |
+| Refactor fetch scripts (`fetch_emiten.py`, `fetch_master_broker_idx.py`) → `write_l0()` | ⏳ next |
+| Stage 1 promotion (`L0_MASTER_*_DUCKDB_WRITE=true`) + 14-day streak | ⏳ after fetch refactor |
+| Stage 2 read switch + Stage 3 cutover | ⏳ Phase 1 close-out |
+| Phase 5 broksum chunked benchmark | ⏳ defer to Phase 5 |
+
+**Active migration invariant:** default canary flags = stage 0 (parquet only, no DuckDB writes/reads). All current pipelines unaffected until env vars promote individual sources. Continuity gate enforces this at merge time for any fetch script refactor.
+
+**Storage abstraction is internally consistent** — a new schema dropped into `pipeline/storage/schemas/<source>.py` + registered in `schemas/__init__.py` is automatically picked up by writers, readers, validators, migration runner, and the continuity gate. Verified end-to-end on `master_broker` (auto-extended pytest gate from 2 → 4 tests with zero edits).
+
+**Bugs caught + fixed via real-data Phase 1 load** (would have been missed by synthetic fixtures):
+1. **DuckDB rejects `%` in unquoted identifiers** — `master_broker` has `foreignfund_%` etc. Fixed by `_q()` helper double-quoting all identifiers in `_base.py` SQL generators.
+2. **Validator false-positive on TIMESTAMP cols** — parquet stores ISO strings, DuckDB returns `datetime64`; native `==` flags 100% diff. Fixed via `pd.to_datetime` normalization in `_compare_column`.
+
+**Audit gap resolved (2026-05-01):** `ipot_ohlcv_1h.parquet` → **deferred** (PRD 0003 §11.1, rev 0.5). Zero live consumer found (former Python inference path archived; Go path doesn't reference it). Fetcher kept; no L0 schema, no migration. Flagged separately: `run_inference_bsjp.sh` chain is broken (Suspended table below).
+
+### Active BSJP Research Baselines (May 2026)
+
+The active research framing is now split by execution/fillability regime. `v18_close10_rebuild_policy_w25` is retained only as a historical recovered-v18 reference because it depends on close15/EOD-style features that are not available before a realistic 14:59 decision.
+
+| Baseline | Artifact | Use | 100D | 50D | 20D | MaxDD | Status |
+|---|---|---|---:|---:|---:|---:|---|
+| **ARA continuation** | `model/BSJP/bsjp_v19d_close10_preclose14_orb_md100_l21.5/` | Near-ARA/ARA continuation research; needs fillability realism | +148.6% | +24.3% | +9.9% | -29.0% | Active research |
+| **ARA cont. policy** | `model/BSJP/bsjp_v20_ara_continuation_state_policy_clean/` | v20 clean veto: keep single-release + near-ARA (0-3%), veto rest | +222.6% | +66.1% | +23.0% | -3.2% | Policy artifact, implemented in Go predict |
+| **Non-ARA continuation** | `model/BSJP/bsjp_v19d_close10_preclose14_orb_md100_l21.5_noara/` | Control baseline after hard excluding near-ARA names | -42.3% | n/a | n/a | -44.2% | Negative control, not tradable |
+
+Key finding: hard excluding `pre14_is_ara_like` removes the current edge. The no-ARA baseline is therefore not a promotion candidate; it is the control proving that the v19d edge is concentrated in difficult-to-fill ARA-like names. Next research should make the ARA-continuation branch fillability-aware, and separately search for a better non-ARA continuation signal.
+
+ARA-state diagnostic now splits the ARA branch more realistically:
+
+| Bucket | Initial Read |
+|---|---|
+| `ara_touched_single_release` | Strongest selected bucket so far; release wick implies some fillability |
+| `ara_touched_repeated_release` | Much weaker; repeated release wicks may indicate inventory distribution |
+| `near_ara_not_touched_0_3pct` | Still tradable; small sample but strong |
+| `non_ara_far_gt8pct` | Weak current continuation baseline |
+
+Artifacts: `_LOG/pre14_ara_state_bucket_diagnostic_20260501.csv` and `_LOG/pre14_ara_state_selected_examples_20260501.csv`.
+
+Policy simulation without retrain:
+
+| Policy | 100D | 50D | 20D | MaxDD | Read |
+|---|---:|---:|---:|---:|---|
+| `veto_keep_single_near_momentum_0_8` | +248.6% | +59.0% | +18.7% | -3.2% | Best veto-mode diagnostic |
+| `veto_keep_single_plus_near_0_3` | +222.7% | +66.1% | +23.0% | -3.2% | Cleaner ARA-fillability branch |
+| `veto_repeated_only` | -9.2% | -15.8% | -8.3% | -20.6% | Repeated release weak |
+| `veto_far_nonara_only` | -24.8% | -11.3% | +0.9% | -32.0% | Far non-ARA weak |
+
+Artifacts: `_LOG/pre14_ara_state_policy_sim_summary_20260501.csv` and `_LOG/pre14_ara_state_policy_veto_summary_20260501.csv`. Treat this as OOT diagnostic policy selection, not promotion; next step is frozen-rule validation.
+
+Frozen walk-forward validation over the original 4 pre-OOT folds:
+
+| Policy | 80d WF CumNet | MaxDD | Net/Trade | Read |
+|---|---:|---:|---:|---|
+| `wf_all_base` | +174.1% | -13.8% | +1.99% | Highest total return |
+| `wf_veto_single_near_momentum_0_8` | +111.4% | -7.4% | +6.12% | Positive all folds; better risk/trade quality |
+| `wf_veto_single_plus_near_0_3` | +92.6% | -7.4% | +6.09% | Cleaner fillability branch; positive all folds |
+| `wf_veto_far_nonara_only` | -16.2% | -22.3% | -0.47% | Weak branch |
+
+Artifacts: `_LOG/pre14_ara_state_policy_walkforward_summary_20260501.csv` and `_LOG/pre14_ara_state_policy_walkforward_by_fold_20260501.csv`. Read: ARA-state veto validates as a risk filter, but not yet as a return upgrade versus full base in walk-forward.
+
+Packaged baseline artifact:
+
+- `model/BSJP/bsjp_v20_ara_continuation_state_policy_clean/`
+- Policy: keep `ara_touched_single_release` + `near_ara_not_touched_0_3pct`
+- Mechanic: veto after original v19d selection, no re-ranking/reweighting
+- OOT: 100D +222.6%, 50D +66.1%, 20D +23.0%, MaxDD -3.2%, 48 positions
+- Status: research baseline artifact, not production
+
+Next branch: **v20 no-touch clean**. Rationale: even single-release ARA touched may be hard to fill live; the most operationally realistic seed is `near_ara_not_touched_0_3pct`. Initial no-touch diagnostic:
+
+| Bucket | OOT 100D | WF Validation | Read |
+|---|---:|---:|---|
+| `near_ara_not_touched_0_3pct` | +9.6% | +17.4% | cleanest but sparse |
+| `near_momentum_0_8_not_touched` | +18.6% | +28.7% | broader candidate, needs filters |
+| `all_not_touched` | -11.0% | +7.5% | too noisy |
+
+Artifact: `_LOG/pre14_ara_state_no_touch_alternatives_20260501.csv`. Next session should start from this no-touch branch and search for filters that increase signal count without admitting ARA-touched names.
 
 ### Suspended / Needs Attention
 
 | Component | Status | Reason |
 |-----------|--------|--------|
 | BPJS strategy | ⏸️ PAUSED | 1h window too narrow to clear break-even |
-| Python `fetch_lightweight.py` | 🟡 BLOCKED | Duplicate 'date' column bug after bucket rolling merge |
+| Python `fetch_lightweight.py` | ⏸️ DEFERRED | Duplicate 'date' column bug; Go inference replaces it |
 | Rust inference port | 🔴 BLOCKED | Polars first compile > 5 min, lightgbm-rs needs C headers |
-| Go `broker_agg.go` CGO UPDATE | 🔴 BUG | RowsAffected=0 after UPDATE FROM, data IS written (verified Python) |
-| Go `yf_daily.go` | 🔴 BROKEN | 58 OHLCV features produce wrong values |
-| Go `overnight.go` | 🟡 CALIBRATE | gapdown_freq epsilon mismatch (0.00 vs 0.20) |
-| Go CVD, Stockbit/XL, VWAP | 🔴 TODO | Not implemented yet (~16 features) |
+| Go `broker_agg.go` CGO UPDATE | 🟡 COSMETIC | RowsAffected=0 after UPDATE FROM, data IS written (base flow 18/18 PERFECT) |
+| Go broker timeflow/context | 🟡 DEFERRED | 96 cols rely on bootstrap values; not regenerated in Go. Phase 2-3 needed. |
+| `ipot_ohlcv_1h.parquet` | ⏸️ DEAD CODE | Zero live consumers (PRD 0003 §11.1). Removed from inference cron. Fetcher still runs. |
+| Python inference path | 🗑️ ARCHIVED | `inferences/bsjp/python/` removed. Go binary is now sole inference path. |
+| `run_inference_bsjp.sh` | ✅ FIXED | Now calls Go binary: `bsjp fetch` + `bsjp predict`. |
 
-### v18 Label Divergence — Root Cause (Apr 2026)
+### v18 Label Divergence — Corrected Root Cause (Apr 2026)
 
-`generate_datamart.py` diubah 27 Apr 12:48 — mengubah cara hitung `entry_price`/`exit_price` → `overnight_return` berubah → `label_tp`/`label_sl2` berubah.
+The original diagnosis was "label drift after `generate_datamart.py` changed." The corrected diagnosis is more specific: **OLD v18 used close10 labels even though the file was named `training_datamart_bsjp_overnight.parquet`**.
+
+OLD v18 semantics:
+- Entry = `close@15 T`
+- Exit = `open@10 T+1`
+- `label_name = bsjp_close10_sl2`
+
+NEW rebuilt overnight semantics:
+- Entry = `close@15 T`
+- Exit = `open@09 T+1`
+- `label_name = bsjp_overnight_sl2`
 
 **Dampak:**
-- OLD L2 (108,698 rows): `overnight_return` mean=0.000017, label_tp=34.6% → 768 trees, AUC 0.68
-- NEW L2 (110,236 rows): `overnight_return` mean=-0.001470, label_tp=36.9% → 27 trees, AUC 0.62
-- Common 105,102 rows have different labels (596 rows different label_tp, 592 different label_sl2)
-- 5,134 extra rows in NEW (mostly 2023 dates, easier labels)
-- 3,596 rows removed from OLD
+- `entry_price` did not drift on common OLD vs NEW rows.
+- `exit_price` changed on 85,945 / 105,102 common rows (81.8%) because exit hour changed 10 → 9.
+- `label_tp` changed on 32,967 / 105,102 common rows (31.4%).
+- `label_sl2` changed on 19,202 / 105,102 common rows (18.3%).
+- This objective mismatch explains the tree collapse from 305-ish trees to 27/28 trees.
 
-**Fix:** `training_datamart_bsjp_overnight_fixed.parquet` — NEW row universe + OLD core labels (8 columns: date, ticker, entry_price, exit_price, overnight_return, label_tp, label_sl2, label_name). 110,236 rows, 28 trees, AUC 0.67.
+**Recovered path:** Rebuild with current `generate_datamart.py --exit-hour 10`, then filter to the OLD `(date,ticker)` universe:
+- Full close10 rebuild: `data/Level_2_Datamart/training_datamart_bsjp_close10_rebuild.parquet` (424,909 rows; too broad for v18 reproduction).
+- v18-like close10 rebuild: `data/Level_2_Datamart/training_datamart_bsjp_close10_rebuild_v18like.parquet` (108,698 rows; core labels match OLD except 1 row).
+- Model: `model/BSJP/bsjp_v18_close10_rebuild/` → 408 trees, OOT AUC 0.650, raw k3/w34 mean daily net +1.30%, MaxDD -35.6%.
+- Recommended paper-trade policy: `model/BSJP/bsjp_v18_close10_rebuild_policy_w25/` → same model, k=3, max weight 25%, OOT mean daily net +0.98%, MaxDD -28.2%, worst day -7.6%.
+- Monte Carlo for policy w25: 10,000 paths, block=5. 100d median 2.57x, P(loss)=1.78%, mean MaxDD -19.6%, P(MaxDD≤-30%)=7.61%. 252d median 11.34x, P(loss)=0.04%, mean MaxDD -25.2%, P(MaxDD≤-30%)=22.0%.
 
-**Lesson:** Versi generate_datamart.py dan train_lightgbm.py HARUS diversion-lock. Saat ini kedua script asli (pre-27-Apr) HILANG — tidak bisa mereproduksi v17/v18_BACKUP.
+**Lesson:** Names must encode objective. Do not call a close10 datamart `overnight`. Training scripts and datamart artifacts must be version-locked with checksums and exact commands.
 
 ### Contaminated — INVALID (Data Leakage)
 
@@ -308,17 +432,16 @@ idx/
 5. **`min_data_in_leaf=100`, `lambda=1.0-1.5`** is the sweet spot (grid search finding). v7 default (md=500) is over-regularized.
 6. **IHSG MA features work** — they provide macro context that lowers MaxDD without hurting AUC.
 7. **Cross-sectional features (sq_, xc_, yp_, pd_)** are in the model but have NOT been audited for lookahead safety.
-8. **Fixed L2 (`*_fixed.parquet`)** is the training artifact for v18+. NEW row universe (110,236) with OLD core labels. Regular rebuild (`generate_datamart.py`) untuk menambah tanggal baru; setelah rebuild, patch lagi 8 core columns dari backup.
+8. **Close10 v18-like L2 is the current recovered training artifact** for reproducing v18 behavior: `training_datamart_bsjp_close10_rebuild_v18like.parquet`. The `*_fixed.parquet` file is a mixed forensic artifact, not clean canonical training data.
 9. **Training scripts MUST be version-locked** — `generate_datamart.py` dan `train_lightgbm.py` pre-27-Apr HILANG dan tidak bisa direproduksi.
 
 ### Next Priorities (Agreed)
 
-1. **Version-lock training scripts** — `git init`, simpan checksum `generate_datamart.py` dan `train_lightgbm.py` yang verified. Setiap perubahan = git commit wajib.
-2. **Paper trade v18_fixed** — run live, track results daily.
-3. **Fix Go feature parity** — yf_daily (58 cols), CVD (6), Stockbit/XL (4), VWAP (6), overnight calibration, CGO broker UPDATE bug.
-4. **Re-run grid search with fixed L2** — `training_datamart_bsjp_overnight_fixed.parquet`.
-5. **Fix Python `fetch_lightweight.py`** duplicate column bug — zero-L1/L2 inference.
-6. **Implement `generate_datamart.py` rebuild + patch workflow** — add new dates from L1, then overlay OLD 8 core columns from backup.
+1. **Version-lock L0 for next training** — snapshot broksum + yf daily + global indices before training.
+2. **Paper-trade v20 ARA policy** — operational test of fillability for single-release + near-ARA picks.
+3. **Broker Phase 2-3** — timeflow (tfl_*), broker-type (localfund/bandar), cross-sectional features in Go.
+4. **Version-lock training scripts** — `git init` done; simpan checksum `generate_datamart.py` dan `train_lightgbm.py`.
+5. **Fix Go broker timeflow/context** — 96 stale columns, needed when inference passes bootstrap range.
 
 ---
 
@@ -445,3 +568,22 @@ go build -o bsjp ./cmd/bsjp/
 |------|---------|---------|
 | 2026-04-29 | 1.0 | Initial program.md. Defined two-product architecture, invariants, directory structure, session protocol. Based on AGENTS.md, LATEST.md, PLANNING.md, and existing codebase state. |
 | 2026-04-29 | 1.1 | Post v18 investigation: Added L2 label divergence root cause, fixed datamart, Go parity bugs, script version-loss warning, updated training params (md=100, λ=1.0/1.5), revised priorities. |
+| 2026-04-30 | 1.2 | Corrected v18 root cause: OLD datamart was close10 despite overnight filename. Added v18 close10 rebuild, MC results, and k3/w25 paper-trade policy. |
+| 2026-04-30 | 1.3 | Added `current_v18_fixed` forensic conclusion: hybrid close10/overnight labels are not promotable; clean fixed-universe close10 test failed. |
+| 2026-04-30 | 1.4 | Added v19 preclose14 cost-aware baseline: modular pre-14:59 features, close15/EOD blacklist preset, and cost-aware labels. |
+| 2026-04-30 | 1.5 | Added v19b gross-label preclose14 filter tests: gross alpha without close15/EOD is weak; cost/price filters help but are not promotable. |
+| 2026-04-30 | 1.6 | Added v19c preclose14 volume/turnover expansion and 9-run hyperparameter sanity grid; `md100_l2=1.5` is a research candidate only. |
+| 2026-04-30 | 1.7 | Added v19d ORB preclose14 proxy results; first executable proxy family to materially improve 100d/50d/20d, still research only. |
+| 2026-04-30 | 1.8 | Added §4 "L0 → DuckDB Migration" subsection (PRD 0003 progress). Added `pipeline/storage/` to §3 directory tree. B1 (foundation library) + B2 (master_emiten schema) done. |
+| 2026-04-30 | 1.10 | Phase 0 storage library complete. B3 (writers/readers/l0/validators), B5 (continuity merge gate via pytest), B4 (backup 3-tier + migrate + `0003_phase0_init.py`) all landed and verified. Expanded §3 dir tree + §4 L0 migration table. Bootstrap of real `master.duckdb` still pending user approval. |
+| 2026-05-01 | 1.11 | Bootstrapped real `master.duckdb` (empty table, 274 KB, gitignored). Audit `ipot_ohlcv_1h.parquet` → deferred (zero live consumer; PRD 0003 §11.1 rev 0.5). Added `run_inference_bsjp.sh` to Suspended table (Step 2 path broken — references archived `inferences/bsjp/python/fetch.py`). |
+| 2026-04-30 | 1.9 | Added v19d ARA-like execution-filter finding: hard excluding near-ARA names turns v19d negative, proving the current ORB edge is concentrated in difficult-to-fill ARA-like picks. |
+| 2026-05-01 | 1.12 | Reframed active BSJP research baselines as ARA-continuation vs non-ARA continuation; v18 is historical recovered reference only, not an active baseline. |
+| 2026-05-01 | 1.13 | Added ARA-state/release-wick diagnostic: single release wick bucket is strong, repeated release wick bucket is weak, supporting a fillability-vs-distribution split. |
+| 2026-05-01 | 1.14 | Added ARA-state policy simulation without retrain; veto-mode keeping single-release/near-ARA buckets improves PnL and drawdown, but requires frozen-rule validation. |
+| 2026-05-01 | 1.15 | Added frozen ARA-state walk-forward validation: single/near buckets are positive in all folds and improve drawdown/trade quality, but full base still has higher pre-OOT cumulative return. |
+| 2026-05-01 | 1.16 | Packaged `bsjp_v20_ara_continuation_state_policy_clean` policy-layer artifact with metrics, trades, daily PnL, charts, and source v19d model copy. |
+| 2026-05-01 | 1.17 | Added no-touch ARA continuation handoff: start next from near-ARA-not-touched branch because it is more operationally fillable than ARA-touched single-release. |
+| 2026-05-01 | 1.18 | L0 migration: run scripts landed (`run_backup_l0_duckdb.sh`, `run_validate_l0_duckdb.sh`). Phase 1 quick win — `master_broker` schema authored, `0003_phase1_master.py` migration ran, `master.duckdb` populated with 773 emiten + 92 broker rows. Validator parity 0 diffs both tables. Two bugs caught via real-data run + fixed: DuckDB `%` quoting, validator timestamp normalization. Continuity gate auto-extended to 4 tests. |
+| 2026-05-04 | 1.19 | Go inference: CVD + Preclose14 implemented (360 cols/ticker for v19d). yf_daily fixed (`.JK` suffix). DuckDB `INSERT OR REPLACE` dup-key fix. Broker/CVD flow order fix. Calibration: Global (15/15), Momentum (4/4), yf_daily (58/58) PERFECT. v20 ARA-state policy (`v20_clean`) implemented in Go predict path — auto-active for v19d/v20 variants. Preclose14 volume calibration (~30 cols diff) and overnight epsilon still pending. |
+| 2026-05-04 | 1.20 | Go inference parity: Overnight rewritten to daily parquet (24/27 PERFECT). Stockbit/XL implemented (4 cols, PERFECT). Preclose14 volume fixed (min_periods bug). Broker base flow calibrated (18/18 PERFECT vs fresh Python — previous diff was stale module data). `run_inference_bsjp.sh` replaced with Go binary. Python inference path (`inferences/bsjp/python/`) archived. `bsjp download` command added (Yahoo Finance 1h fetcher). All Go Parity Gaps resolved except broker timeflow/context (96 cols, Phase 2-3 deferred). |

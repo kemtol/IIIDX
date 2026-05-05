@@ -68,15 +68,11 @@ func UpsertDate(db *sql.DB, date string, rows []FeatureRow) (int, error) {
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec("DELETE FROM features_store WHERE date = ?", date); err != nil {
-		return 0, err
-	}
-
 	colList := strings.Join(colNames, ", ")
 	placeholders := strings.Repeat("?,", len(colNames))
 	placeholders = placeholders[:len(placeholders)-1]
 
-	sql := fmt.Sprintf("INSERT INTO features_store (date, ticker, %s) VALUES (?, ?, %s)", colList, placeholders)
+	sql := fmt.Sprintf("INSERT OR REPLACE INTO features_store (date, ticker, %s) VALUES (?, ?, %s)", colList, placeholders)
 	stmt, err := tx.Prepare(sql)
 	if err != nil {
 		return 0, err

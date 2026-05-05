@@ -76,3 +76,4 @@ inferences/bsjp/golang/*.exe
 
 # Node (jika nanti ada tooling JS)
 node_modules/
+.bsjp_notify.env

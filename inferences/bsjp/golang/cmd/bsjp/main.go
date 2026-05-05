@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"math"
@@ -12,7 +13,10 @@ import (
 	"github.com/mmmachine/bsjp/internal/config"
 	"github.com/mmmachine/bsjp/internal/db"
 	"github.com/mmmachine/bsjp/internal/features"
+	"github.com/mmmachine/bsjp/internal/fetcher"
 	"github.com/mmmachine/bsjp/internal/model"
+	"github.com/mmmachine/bsjp/internal/notify"
+	"github.com/parquet-go/parquet-go"
 )
 
 func main() {
@@ -29,6 +33,7 @@ func run() error {
 		fmt.Println("  bootstrap   Backfill DuckDB from L2 parquet")
 		fmt.Println("  fetch       Compute features from L0 and upsert")
 		fmt.Println("  predict     Predict top-3 picks")
+		fmt.Println("  download    Fetch 1h bars from Yahoo Finance")
 		fmt.Println("  check       Print freshness report")
 		return nil
 	}
@@ -49,8 +54,10 @@ func run() error {
 		return cmdFetch(repoRoot, os.Args[2:])
 	case "predict":
 		return cmdPredict(repoRoot, os.Args[2:])
+	case "download":
+		return cmdDownload(repoRoot, os.Args[2:])
 	case "check":
-		return cmdCheck(repoRoot)
+		return cmdCheck(repoRoot, os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown subcommand: %s\n", os.Args[1])
 		os.Exit(1)
@@ -151,11 +158,6 @@ func cmdFetch(repoRoot string, args []string) error {
 		return fmt.Errorf("yfinance_1h.parquet not found at %s", yf1h)
 	}
 	fmt.Printf("Computing features for %s...\n", targetDate)
-	if _, err := os.Stat(yf1h); os.IsNotExist(err) {
-		return fmt.Errorf("yfinance_1h.parquet not found at %s", yf1h)
-	}
-
-	fmt.Printf("Computing features for %s...\n", targetDate)
 
 	// Compute momentum features
 	momRows, err := features.ComputeMomentum(yf1h, targetDate)
@@ -163,27 +165,15 @@ func cmdFetch(repoRoot string, args []string) error {
 		return err
 	}
 
-	// Compute broker features from L0 broksum_bybroker.parquet (uses T-1)
-	bksPath := cfg.L0File("broksum_bybroker.parquet")
-	mbPath := cfg.L0File("master_broker.parquet")
-	tMinus1 := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
-	if d, err := time.Parse("2006-01-02", targetDate); err == nil {
-		tMinus1 = d.AddDate(0, 0, -1).Format("2006-01-02")
-	}
-	_, err = features.ComputeBrokerAggregate(database, bksPath, mbPath, tMinus1, targetDate)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: broker (T-1): %v\n", err)
-	}
-
-	// Compute overnight features
-	overnightRows, err := features.ComputeOvernight(yf1h, targetDate)
+	// Compute overnight features (from daily OHLCV)
+	overnightRows, err := features.ComputeOvernight(cfg.L0File("yfinance_daily.parquet"), targetDate)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: overnight skipped: %v\n", err)
 		overnightRows = nil
 	}
 
 	// Compute global macro features (per-date, broadcast)
-	globalRow, err := features.ComputeGlobal(cfg.L0File("global_indices.parquet"), targetDate)
+	globalRow, err := features.ComputeGlobal(cfg.L0File("global_indices.parquet"), cfg.L0File("yfinance_1h.parquet"), targetDate)
 	if err != nil {
 		globalRow = nil
 	}
@@ -195,9 +185,32 @@ func cmdFetch(repoRoot string, args []string) error {
 		yfRows = nil
 	}
 
+	// Compute preclose14 features (needs yfinance_1h intraday through hour 14)
+	p14Rows, err := features.ComputePreclose14(yf1h, targetDate)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: preclose14 skipped: %v\n", err)
+		p14Rows = nil
+	}
+
+	// Compute Stockbit/XL features (auto-load from broksum L0)
+	xlRows, err := features.ComputeStockbit(database, cfg.L0File("broksum_bybroker.parquet"), targetDate)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: stockbit skipped: %v\n", err)
+		xlRows = nil
+	}
+
 	// Index by ticker
 	overnightByTicker := indexOvernight(overnightRows)
 	yfByTicker := indexYf(yfRows)
+	p14ByTicker := indexPreclose14(p14Rows)
+	xlByTicker := indexXl(xlRows)
+
+	// Ensure preclose14 columns exist in features_store
+	if len(p14Rows) > 0 && len(p14Rows[0].Cols) > 0 {
+		for col := range p14Rows[0].Cols {
+			database.Exec(fmt.Sprintf(`ALTER TABLE features_store ADD COLUMN IF NOT EXISTS "%s" DOUBLE`, col))
+		}
+	}
 
 	// Merge into db rows
 	dbRows := make([]db.FeatureRow, 0, len(momRows))
@@ -218,6 +231,16 @@ func cmdFetch(repoRoot string, args []string) error {
 			setYfCols(&dr, y)
 		}
 
+		// Preclose14 features
+		if p, ok := p14ByTicker[r.Ticker]; ok {
+			setPreclose14Cols(&dr, p)
+		}
+
+		// Stockbit/XL features
+		if x, ok := xlByTicker[r.Ticker]; ok {
+			setXlCols(&dr, x)
+		}
+
 		// Global features (broadcast to all tickers)
 		if globalRow != nil {
 			setGlobalCols(&dr, globalRow)
@@ -226,11 +249,113 @@ func cmdFetch(repoRoot string, args []string) error {
 		dbRows = append(dbRows, dr)
 	}
 
+	// Deduplicate by ticker
+	seen := make(map[string]int)
+	deduped := make([]db.FeatureRow, 0, len(dbRows))
+	for _, dr := range dbRows {
+		if idx, ok := seen[dr.Ticker]; ok {
+			// Merge cols from duplicate into first occurrence
+			for k, v := range dr.Cols {
+				if v != nil && deduped[idx].Cols[k] == nil {
+					deduped[idx].Cols[k] = v
+				}
+			}
+		} else {
+			seen[dr.Ticker] = len(deduped)
+			deduped = append(deduped, dr)
+		}
+	}
+	dbRows = deduped
+
 	n, err := db.UpsertDate(database, targetDate, dbRows)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("Done: %d tickers upserted for %s\n", n, targetDate)
+
+	// Compute broker and CVD features (UPDATE after INSERT, needs base rows to exist)
+	bksPath := cfg.L0File("broksum_bybroker.parquet")
+	mbPath := cfg.L0File("master_broker.parquet")
+
+	// Find most recent broker date < targetDate (handles weekends/holidays automatically)
+	brokerDate := targetDate
+	var maxDateStr string
+	sql := fmt.Sprintf("SELECT COALESCE(MAX(date)::VARCHAR, '') FROM read_parquet('%s') WHERE date < '%s'", bksPath, targetDate)
+	database.QueryRow(sql).Scan(&maxDateStr)
+	if maxDateStr != "" {
+		brokerDate = maxDateStr
+	} else {
+		// Fallback: yesterday's calendar date
+		if d, err := time.Parse("2006-01-02", targetDate); err == nil {
+			brokerDate = d.AddDate(0, 0, -1).Format("2006-01-02")
+		}
+	}
+	fmt.Fprintf(os.Stderr, "  broker date: %s (target: %s)\n", brokerDate, targetDate)
+
+	_, err = features.ComputeBrokerAggregate(database, bksPath, mbPath, brokerDate, targetDate)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: broker (T-1): %v\n", err)
+	}
+	_, err = features.ComputeCVD(database, bksPath, brokerDate, targetDate)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: cvd skipped: %v\n", err)
+	}
+
+	return nil
+}
+
+// ── download ───────────────────────────────────────────────────────────
+
+type yfBar struct {
+	Datetime time.Time `parquet:"datetime"`
+	Ticker   string    `parquet:"ticker"`
+}
+
+func cmdDownload(repoRoot string, args []string) error {
+	f := flag.NewFlagSet("download", flag.ExitOnError)
+	limit := f.Int("limit", 0, "Max tickers to download (0=all)")
+	date := f.String("date", "today", "Target date")
+	f.Parse(args)
+
+	cfg, err := loadConfig(repoRoot)
+	if err != nil {
+		return err
+	}
+
+	targetDate := *date
+	if targetDate == "today" {
+		targetDate = time.Now().Format("2006-01-02")
+	}
+
+	yf1hPath := cfg.L0File("yfinance_1h.parquet")
+
+	// Read existing 1h parquet to get ticker list
+	bars, err := parquet.ReadFile[yfBar](yf1hPath)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", yf1hPath, err)
+	}
+
+	tickerSet := make(map[string]bool)
+	for _, b := range bars {
+		tickerSet[strings.TrimSuffix(b.Ticker, ".JK")] = true
+	}
+
+	tickers := make([]string, 0, len(tickerSet))
+	for t := range tickerSet {
+		tickers = append(tickers, t)
+	}
+	sort.Strings(tickers)
+
+	if *limit > 0 && *limit < len(tickers) {
+		tickers = tickers[:*limit]
+	}
+
+	fmt.Printf("Downloading 1h bars for %d tickers (date: %s)...\n", len(tickers), targetDate)
+	n, err := fetcher.Download1h(tickers, yf1hPath, targetDate)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Done: %d new bars written\n", n)
 	return nil
 }
 
@@ -259,6 +384,12 @@ func cmdPredict(repoRoot string, args []string) error {
 	lgb, err := model.LoadLightGBM(modelPath)
 	if err != nil {
 		return fmt.Errorf("load model: %w", err)
+	}
+
+	// Determine ARA-state policy based on variant
+	araPolicy := "none"
+	if strings.Contains(*variant, "v19d") || strings.Contains(*variant, "v20") {
+		araPolicy = "v20_clean"
 	}
 
 	database, err := db.Open(duckPath)
@@ -356,6 +487,33 @@ func cmdPredict(repoRoot string, args []string) error {
 		return picks[i].proba > picks[j].proba
 	})
 
+	// Apply ARA-state policy filter (v20)
+	beforeFilter := len(picks)
+	if araPolicy != "none" {
+		filtered := picks[:0]
+		for _, p := range picks {
+			touched := p.features["pre14_ara_touched"]
+			wickCnt := p.features["pre14_ara_release_wick_count"]
+			araDist := p.features["pre14_ara_distance_pct"]
+			keep := false
+			// single release wick: ARA touched + exactly 1 release
+			if touched >= 0.5 && wickCnt >= 0.5 && wickCnt <= 1.5 {
+				keep = true
+			}
+			// near ARA not touched: within 0-3%
+			if touched < 0.5 && araDist > 0 && araDist <= 0.03 {
+				keep = true
+			}
+			if keep {
+				filtered = append(filtered, p)
+			}
+		}
+		if len(filtered) > 0 {
+			picks = filtered
+		}
+		fmt.Printf("  ARA policy: %d/%d picks kept (policy=%s)\n", len(picks), beforeFilter, araPolicy)
+	}
+
 	topN := 3
 	if topN > len(picks) {
 		topN = len(picks)
@@ -404,11 +562,16 @@ func toFloat64(v interface{}) (float64, bool) {
 
 // ── check ────────────────────────────────────────────────────────────────
 
-func cmdCheck(repoRoot string) error {
-	return cmdCheckWithDB(repoRoot, "")
+func cmdCheck(repoRoot string, args []string) error {
+	f := flag.NewFlagSet("check", flag.ExitOnError)
+	verbose := f.Bool("verbose", false, "Detailed output")
+	telegram := f.Bool("telegram", false, "Send notification to Telegram")
+	dbPath := f.String("db", "", "Path to DuckDB")
+	f.Parse(args)
+	return cmdCheckWithDB(repoRoot, *dbPath, *verbose, *telegram)
 }
 
-func cmdCheckWithDB(repoRoot string, dbPath string) error {
+func cmdCheckWithDB(repoRoot string, dbPath string, verbose bool, tgFlag bool) error {
 	cfg, err := loadConfig(repoRoot)
 	if err != nil {
 		return err
@@ -419,22 +582,225 @@ func cmdCheckWithDB(repoRoot string, dbPath string) error {
 		duckPath = dbPath
 	}
 
-	fmt.Printf("Repo root:    %s\n", cfg.RepoRoot)
-	fmt.Printf("L0 dir:       %s\n", cfg.L0Dir)
-	fmt.Printf("L2 parquet:   %s\n", cfg.L2Parquet)
-	fmt.Printf("DuckDB:       %s\n", duckPath)
-	fmt.Printf("Model dir:    %s\n", cfg.ModelDir)
+	today := time.Now().Format("2006-01-02")
+	tMinus1 := prevTradingDay(time.Now()).Format("2006-01-02")
+	tMinus5 := time.Now().AddDate(0, 0, -5).Format("2006-01-02")
 
-	if _, err := os.Stat(duckPath); err == nil {
-		database, err := db.Open(duckPath)
-		if err != nil {
-			return err
-		}
-		defer database.Close()
-		return db.Check(database)
+	type item struct {
+		Name   string
+		Status string
+		Detail string
 	}
-	fmt.Println("DuckDB not found. Run bootstrap first.")
+	var items []item
+	allOK := true
+
+	// Open DuckDB for metadata-only date queries (fast, reads footer only)
+	checkDB, _ := db.Open(duckPath)
+
+	// ── L0 parquet files ──
+	l0Files := []struct {
+		label, path, dateCol string
+		needDate              string
+		checkDate             bool
+	}{
+		{"broksum", cfg.L0File("broksum_bybroker.parquet"), "date", tMinus5, true},
+		{"yf_daily", cfg.L0File("yfinance_daily.parquet"), "date", tMinus5, true},
+		{"yf_1h", cfg.L0File("yfinance_1h.parquet"), "datetime::DATE", today, false},
+		{"global", cfg.L0File("global_indices.parquet"), "date", tMinus5, true},
+	}
+
+	for _, l0 := range l0Files {
+		info, err := os.Stat(l0.path)
+		if os.IsNotExist(err) {
+			items = append(items, item{l0.label, "❌", "missing"})
+			allOK = false
+			continue
+		}
+
+		// Check actual data date, not just file mod time
+		dataDate := ""
+		if checkDB != nil {
+			sql := fmt.Sprintf("SELECT COALESCE(MAX(%s)::VARCHAR, '') FROM read_parquet('%s')",
+				l0.dateCol, l0.path)
+			checkDB.QueryRow(sql).Scan(&dataDate)
+		}
+		detail := fmt.Sprintf("data %s  %s", dataDate, humanSize(info.Size()))
+
+		if l0.checkDate && dataDate != "" && dataDate < l0.needDate {
+			items = append(items, item{l0.label, "❌", fmt.Sprintf("%s, need ≥ %s", detail, l0.needDate)})
+			allOK = false
+		} else if l0.checkDate && dataDate == "" {
+			items = append(items, item{l0.label, "❌", "cannot read date from file"})
+			allOK = false
+		} else {
+			items = append(items, item{l0.label, "✅", detail})
+		}
+	}
+
+	// ── DuckDB features_store ──
+	if checkDB != nil {
+		var count int64
+		var maxDate *time.Time
+		checkDB.QueryRow("SELECT COUNT(*), MAX(date) FROM features_store").Scan(&count, &maxDate)
+		if maxDate != nil && count > 0 {
+			detail := fmt.Sprintf("%d rows → %s", count, maxDate.Format("2006-01-02"))
+			if maxDate.Format("2006-01-02") >= tMinus1 {
+				items = append(items, item{"DuckDB", "✅", detail})
+			} else {
+				items = append(items, item{"DuckDB", "❌", detail + " (stale)"})
+				allOK = false
+			}
+		} else {
+			items = append(items, item{"DuckDB", "❌", "empty"})
+			allOK = false
+		}
+		checkDB.Close()
+	}
+
+	// ── Model files ──
+	models := []struct {
+		label, variant string
+	}{
+		{"v19d", "v19d_close10_preclose14_orb_md100_l21.5"},
+	}
+	for _, m := range models {
+		mpath := fmt.Sprintf("%s/bsjp_%s/model_lightgbm_opening_tp3.txt", cfg.ModelDir, m.variant)
+		if _, err := os.Stat(mpath); os.IsNotExist(err) {
+			items = append(items, item{"model_" + m.label, "❌", "missing"})
+			allOK = false
+		} else {
+			// Read model metadata from file header (avoid verbose LoadLightGBM output)
+			trees, feats := modelCounts(mpath)
+			if trees <= 0 {
+				items = append(items, item{"model_" + m.label, "❌", "failed to read"})
+				allOK = false
+			} else {
+				items = append(items, item{"model_" + m.label, "✅",
+					fmt.Sprintf("%d trees, %d features", trees, feats)})
+			}
+		}
+	}
+
+	// ── Output ──
+	sb := &strings.Builder{}
+	if verbose {
+		for _, it := range items {
+			line := fmt.Sprintf("%s %-12s %s\n", it.Status, it.Name, it.Detail)
+			fmt.Print(line)
+			sb.WriteString(line)
+		}
+	} else {
+		// Compact
+		for _, it := range items {
+			line := fmt.Sprintf("%s %s\n", it.Status, it.Name)
+			fmt.Print(line)
+			sb.WriteString(line)
+		}
+	}
+
+	// ── Telegram + Discord notification ──
+	if tgFlag {
+		// Telegram
+		token := os.Getenv("BSJP_TELEGRAM_TOKEN")
+		chatID := os.Getenv("BSJP_TELEGRAM_CHAT_ID")
+		if token != "" && chatID != "" {
+			tgText := fmt.Sprintf("🔍 *BSJP Preflight %s*\n\n", time.Now().Format("15:04 WIB"))
+			for _, it := range items {
+				tgText += fmt.Sprintf("%s %s", it.Status, it.Name)
+				if it.Detail != "" {
+					tgText += fmt.Sprintf("  %s", it.Detail)
+				}
+				tgText += "\n"
+			}
+			if allOK {
+				tgText += "\n✅ *ALL GREEN. Ready for inference.*"
+			} else {
+				tgText += fmt.Sprintf("\n⚠️ *Issues found. Recheck at %s.*",
+					time.Now().Add(5*time.Minute).Format("15:04 WIB"))
+			}
+			if err := notify.Send(token, chatID, tgText); err != nil {
+				fmt.Fprintf(os.Stderr, "Telegram error: %v\n", err)
+			}
+		}
+
+		// Discord
+		dcToken := os.Getenv("BSJP_DISCORD_TOKEN")
+		dcChannel := os.Getenv("BSJP_DISCORD_CHANNEL")
+		if dcToken != "" && dcChannel != "" {
+			title := fmt.Sprintf("BSJP Preflight %s WIB", time.Now().Format("15:04"))
+			featItems := make([]notify.CheckItem, len(items))
+			for i, it := range items {
+				featItems[i] = notify.CheckItem{
+					Name: it.Name, Status: it.Status, Detail: it.Detail,
+				}
+			}
+			if err := notify.SendDiscordPreflight(dcToken, dcChannel, title, featItems, allOK); err != nil {
+				fmt.Fprintf(os.Stderr, "Discord error: %v\n", err)
+			}
+		}
+	}
+
+	if !allOK {
+		n := 0
+		for _, it := range items {
+			if strings.Contains(it.Status, "❌") {
+				n++
+			}
+		}
+		return fmt.Errorf("preflight: %d issues found", n)
+	}
 	return nil
+}
+
+// humanSize formats a file size in human-readable form.
+func humanSize(n int64) string {
+	units := []string{"B", "KB", "MB", "GB"}
+	v := float64(n)
+	i := 0
+	for v >= 1024 && i < len(units)-1 {
+		v /= 1024
+		i++
+	}
+	return fmt.Sprintf("%.1f%s", v, units[i])
+}
+
+// prevTradingDay returns the most recent weekday before t (skips t itself).
+func prevTradingDay(t time.Time) time.Time {
+	d := t.AddDate(0, 0, -1)
+	for {
+		wd := d.Weekday()
+		if wd >= time.Monday && wd <= time.Friday {
+			return d
+		}
+		d = d.AddDate(0, 0, -1)
+	}
+}
+
+// modelCounts reads tree count and feature count from a LightGBM model file header.
+func modelCounts(path string) (trees, features int) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, 0
+	}
+	defer f.Close()
+
+	// Read first 5 lines to find feature_names and tree_sizes
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 1<<20), 1<<24)
+	lineCount := 0
+	for scanner.Scan() && lineCount < 15 {
+		line := scanner.Text()
+		lineCount++
+		if strings.HasPrefix(line, "feature_names=") {
+			s := line[len("feature_names="):]
+			features = len(strings.Fields(s))
+		}
+		if strings.HasPrefix(line, "tree_sizes=") {
+			s := line[len("tree_sizes="):]
+			trees = len(strings.Fields(s))
+		}
+	}
+	return trees, features
 }
 
 func f64Ptr(v float64) *float64 {
@@ -490,36 +856,10 @@ func setBrokerCols(dr *db.FeatureRow, b *features.BrokerRow) {
 }
 
 func setOvernightCols(dr *db.FeatureRow, o *features.OvernightRow) {
-	dr.Set("overnight_ret_ma5", o.OvernightMA5)
-	dr.Set("overnight_ret_ma20", o.OvernightMA20)
-	dr.Set("overnight_ret_ma60", o.OvernightMA60)
-	dr.Set("overnight_positive_rate5", o.OvernightPositiveRate5)
-	dr.Set("overnight_positive_rate20", o.OvernightPositiveRate20)
-	dr.Set("overnight_positive_rate60", o.OvernightPositiveRate60)
-	dr.Set("overnight_worst_5d", o.OvernightWorst5)
-	dr.Set("overnight_worst_20d", o.OvernightWorst20)
-	dr.Set("overnight_worst_60d", o.OvernightWorst60)
-	dr.Set("overnight_p10_5d", o.OvernightP10_5)
-	dr.Set("overnight_p10_20d", o.OvernightP10_20)
-	dr.Set("overnight_p10_60d", o.OvernightP10_60)
-	dr.Set("gapdown_freq_5d", o.GapdownFreq5)
-	dr.Set("gapdown_freq_20d", o.GapdownFreq20)
-	dr.Set("gapdown_freq_60d", o.GapdownFreq60)
-	dr.Set("gapdown_severe_freq_5d", o.GapdownSevereFreq5)
-	dr.Set("gapdown_severe_freq_20d", o.GapdownSevereFreq20)
-	dr.Set("gapdown_severe_freq_60d", o.GapdownSevereFreq60)
-	dr.Set("gap_up2_freq_5d", o.GapUp2Freq5)
-	dr.Set("gap_up2_freq_20d", o.GapUp2Freq20)
-	dr.Set("gap_up2_freq_60d", o.GapUp2Freq60)
-	dr.Set("gap_down2_freq_5d", o.GapDown2Freq5)
-	dr.Set("gap_down2_freq_20d", o.GapDown2Freq20)
-	dr.Set("gap_down2_freq_60d", o.GapDown2Freq60)
-	dr.Set("gap_up2_down2_edge_5d", o.GapUp2Down2Edge5)
-	dr.Set("gap_up2_down2_edge_20d", o.GapUp2Down2Edge20)
-	dr.Set("gap_up2_down2_edge_60d", o.GapUp2Down2Edge60)
-	dr.Set("gap_up2_followthrough_freq_5d", o.GapUp2FollowthroughFreq5)
-	dr.Set("gap_up2_followthrough_freq_20d", o.GapUp2FollowthroughFreq20)
-	dr.Set("gap_up2_followthrough_freq_60d", o.GapUp2FollowthroughFreq60)
+	for col, val := range o.Cols {
+		v := val
+		dr.Cols[col] = &v
+	}
 }
 
 func setGlobalCols(dr *db.FeatureRow, g *features.GlobalRow) {
@@ -550,6 +890,36 @@ func indexYf(rows []features.YfRow) map[string]*features.YfRow {
 
 func setYfCols(dr *db.FeatureRow, y *features.YfRow) {
 	for col, val := range y.Cols {
+		v := val
+		dr.Cols[col] = &v
+	}
+}
+
+func indexPreclose14(rows []features.Preclose14Row) map[string]*features.Preclose14Row {
+	m := make(map[string]*features.Preclose14Row)
+	for i := range rows {
+		m[rows[i].Ticker] = &rows[i]
+	}
+	return m
+}
+
+func setPreclose14Cols(dr *db.FeatureRow, p *features.Preclose14Row) {
+	for col, val := range p.Cols {
+		v := val
+		dr.Cols[col] = &v
+	}
+}
+
+func indexXl(rows []features.XlRow) map[string]*features.XlRow {
+	m := make(map[string]*features.XlRow)
+	for i := range rows {
+		m[rows[i].Ticker] = &rows[i]
+	}
+	return m
+}
+
+func setXlCols(dr *db.FeatureRow, x *features.XlRow) {
+	for col, val := range x.Cols {
 		v := val
 		dr.Cols[col] = &v
 	}

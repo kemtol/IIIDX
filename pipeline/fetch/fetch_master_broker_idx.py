@@ -17,6 +17,7 @@ import argparse
 import ast
 import json
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,17 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import pandas as pd
+
+# L0 storage gateway lives at repo root; ensure it is importable when this
+# script is invoked directly (`python pipeline/fetch/fetch_master_broker_idx.py`).
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from pipeline.storage.schemas import SCHEMAS  # noqa: E402
+from pipeline.storage.writers import write_l0  # noqa: E402
+
+_SOURCE = "master_broker"
 
 
 BASE_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -331,8 +343,15 @@ def main() -> int:
     existing_df = load_existing(args.output)
     final_df, stats = merge_status(existing_df=existing_df, idx_df=idx_df, source_url=source_url)
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    final_df.to_parquet(args.output, index=False)
+    # Gateway write: parquet path is canonicalized by the schema. write_l0
+    # also handles dual-write to DuckDB once the canary flag is promoted.
+    schema_path = (_REPO_ROOT / SCHEMAS[_SOURCE].parquet_path).resolve()
+    if args.output.resolve() != schema_path:
+        print(
+            f"[warn] --output={args.output} differs from schema path "
+            f"{schema_path}; gateway will write to schema path."
+        )
+    write_l0(_SOURCE, final_df)
 
     meta = {
         "synced_at": datetime.now(timezone.utc).isoformat(),
@@ -345,7 +364,7 @@ def main() -> int:
     args.metadata_output.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
     print(f"[ok] source={source_url}")
-    print(f"[ok] output={args.output}")
+    print(f"[ok] output={schema_path}")
     print(f"[ok] metadata={args.metadata_output}")
     print(
         "[ok] total={total_brokers} active={active_brokers} inactive={inactive_brokers} "

@@ -49,7 +49,7 @@ Parquet tetap menjadi sumber untuk research, audit, dan retraining.
 | L0 raw | `data/Level_0_Raw/*.parquet` | Arsip historis broker summary, OHLCV, master emiten/broker, global indices |
 | L1 feature mart | `data/Level_1_Features/broksum_datamart.parquet` | Feature engineering strategy-agnostic untuk training/batch analysis |
 | L1 VWAP | `data/Level_1_Features/vwap_features.parquet` | Fitur VWAP tambahan untuk L2 BSJP |
-| L2 training | `data/Level_2_Datamart/training_datamart_bsjp_overnight.parquet` | Datamart training/backtest BSJP, grain `(date,ticker)` |
+| L2 training | `data/Level_2_Datamart/training_datamart_bsjp_*.parquet` | Datamart training/backtest BSJP, grain `(date,ticker)`; objective must be explicit (`overnight` exit 09 vs `close10` exit 10) |
 | Model artifacts | `model/BSJP/bsjp_v*/` | `metrics.json`, model LightGBM, predictions, portfolio, plots |
 
 Catatan operasional:
@@ -109,7 +109,7 @@ idx/
 │   │   ├── edge.md       #   Definisi strategi
 │   │   ├── scripts/      #   generate_datamart.py + train_lightgbm.py
 │   │   └── analysis/     #   Notebook/skrip evaluasi
-│   └── bsjp_overnight_sl2/ # Beli Sore Jual Pagi (close T → open T+1, SL -2%) — ACTIVE
+│   └── bsjp_overnight_sl2/ # BSJP research edge; current target objective is close T → open 10:xx T+1
 │       ├── edge.md        #   Definisi strategi (best: v7, AUC 0.602, return +103%)
 │       ├── scripts/       #   generate_datamart.py + train_lightgbm.py
 │       └── analysis/      #   Evaluasi hasil prediksi
@@ -185,8 +185,8 @@ Penting:
 | Item | Detail |
 |---|---|
 | Entry | Close ~15:30-15:45 WIB (candle 15:xx hari T) |
-| Exit | Time-based: tepat 09:05 WIB T+1 (candle 09:xx) |
-| Label | `overnight_return = (open@09:xx_T+1 - close@15:xx_T) / close@15:xx_T` |
+| Exit | Current target objective: open 10:xx WIB T+1 (`close10`). Some older production variants use open 09:xx (`overnight`). |
+| Label | Close10: `(open@10:xx_T+1 - close@15:xx_T) / close@15:xx_T`; Overnight: `(open@09:xx_T+1 - close@15:xx_T) / close@15:xx_T` |
 | TP | `overnight_return > 0.4%` (roundtrip cost) |
 | SL | `overnight_return < -2%` (klasifikasi saja) |
 | Model | LightGBM binary classifier |
@@ -200,6 +200,13 @@ Catatan v15:
 - `bsjp_v15` dilatih sebagai BSJP overnight: beli close/hour-15 hari T, jual open/hour-9 T+1.
 - Metadata `northstar` di `metrics.json` sempat salah menulis `09:00 -> 10:00`; sudah dikoreksi agar sesuai label aktual.
 - Repro test `bsjp_v15_1` dengan parameter identik menghasilkan metrics, predictions, dan portfolio daily yang sama persis dengan v15 (`pred_proba_max_abs_diff = 0.0`).
+
+Catatan v18 / close10:
+- Forensik Apr 29 menunjukkan OLD `training_datamart_bsjp_overnight.parquet` yang dipakai v18 sebenarnya berisi `label_name = bsjp_close10_sl2` dengan exit `open@10 T+1`; nama file lama misleading.
+- NEW `training_datamart_bsjp_overnight.parquet` adalah true overnight exit `open@09 T+1`, sehingga label berbeda besar dan model collapse ke 27/28 trees.
+- Rebuild close10 yang menyerupai OLD dibuat di `data/Level_2_Datamart/training_datamart_bsjp_close10_rebuild_v18like.parquet`.
+- Model kandidat `model/BSJP/bsjp_v18_close10_rebuild/`: 249 features, 408 trees, OOT AUC 0.650. Raw k3/w34 policy gives mean daily net +1.30% with MaxDD -35.6%.
+- Recommended paper-trade artifact: `model/BSJP/bsjp_v18_close10_rebuild_policy_w25/`, same model with k=3 and max weight 25%. OOT mean daily net +0.98%, MaxDD -28.2%; Monte Carlo 100d median 2.57x, P(loss)=1.78%, P(MaxDD≤-30%)=7.61%.
 
 ### BPJS (Beli Pagi Jual Siang) — **PAUSE ⏸️**
 

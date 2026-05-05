@@ -3,8 +3,10 @@ package features
 import (
 	"math"
 	"sort"
+	"strings"
 	"time"
 
+	"github.com/mmmachine/bsjp/internal/fetcher"
 	"github.com/parquet-go/parquet-go"
 )
 
@@ -41,7 +43,9 @@ type GlobalRow struct {
 
 // ComputeGlobal reads global_indices.parquet and computes macro features for targetDate.
 // All features shifted by 1 day (no look-ahead).
-func ComputeGlobal(parquetPath, targetDate string) (*GlobalRow, error) {
+// If yf1hPath is non-empty and ^JKSE daily data is missing for target date,
+// a proxy IHSG close is computed from the top-50 equal-weight basket of 1h bars.
+func ComputeGlobal(parquetPath, yf1hPath, targetDate string) (*GlobalRow, error) {
 	rows, err := parquet.ReadFile[globalRow](parquetPath)
 	if err != nil {
 		return nil, err
@@ -89,7 +93,23 @@ func ComputeGlobal(parquetPath, targetDate string) (*GlobalRow, error) {
 	// IHSG
 	if s := symbols["^JKSE"]; s != nil {
 		idx := findIdx(s.dates, tMinus1)
-		if idx >= 0 {
+		exactMatch := idx >= 0 && s.dates[idx].Truncate(24*time.Hour).Equal(tMinus1.Truncate(24*time.Hour))
+		useProxy := false
+
+		if !exactMatch && idx >= 0 && yf1hPath != "" && s.closes[idx] > 0 {
+			// Walk forward from the last known ^JKSE date to find most recent day with 1h bars
+			for fwd := 1; fwd <= 5; fwd++ {
+				tryDate := s.dates[idx].AddDate(0, 0, fwd)
+				proxy := computeIhsgProxy(yf1hPath, tryDate, s.dates[idx], s.closes[idx])
+				if proxy > 0 {
+					r.IhsgPrevClose = proxy
+					useProxy = true
+					break
+				}
+			}
+		}
+
+		if !useProxy && idx >= 0 {
 			prevClose := s.closes[idx]
 			r.IhsgPrevClose = prevClose
 			if idx > 0 {
@@ -116,6 +136,13 @@ func ComputeGlobal(parquetPath, targetDate string) (*GlobalRow, error) {
 		if idx > 0 {
 			r.NasdaqPrevReturn = (s.closes[idx] - s.closes[idx-1]) / s.closes[idx-1]
 		}
+		// Fallback: if Nasdaq daily is stale, try live 1h from Yahoo Finance
+		exact := idx >= 0 && s.dates[idx].Truncate(24*time.Hour).Equal(tMinus1.Truncate(24*time.Hour))
+		if !exact || idx < 0 {
+			if live := fetcher.GetLastClose("^IXIC"); live > 0 && idx > 0 {
+				r.NasdaqPrevReturn = (live - s.closes[idx-1]) / s.closes[idx-1]
+			}
+		}
 	}
 
 	// Nikkei
@@ -123,6 +150,12 @@ func ComputeGlobal(parquetPath, targetDate string) (*GlobalRow, error) {
 		idx := findIdx(s.dates, tMinus1)
 		if idx > 0 {
 			r.NikkeiPrevReturn = (s.closes[idx] - s.closes[idx-1]) / s.closes[idx-1]
+		}
+		exact := idx >= 0 && s.dates[idx].Truncate(24*time.Hour).Equal(tMinus1.Truncate(24*time.Hour))
+		if !exact || idx < 0 {
+			if live := fetcher.GetLastClose("^N225"); live > 0 && idx > 0 {
+				r.NikkeiPrevReturn = (live - s.closes[idx-1]) / s.closes[idx-1]
+			}
 		}
 	}
 
@@ -132,6 +165,12 @@ func ComputeGlobal(parquetPath, targetDate string) (*GlobalRow, error) {
 		if idx >= 0 {
 			r.VixPrevClose = s.closes[idx]
 			r.Vix5dAvg = maAt(s.closes, idx, 5)
+		}
+		exact := idx >= 0 && s.dates[idx].Truncate(24*time.Hour).Equal(tMinus1.Truncate(24*time.Hour))
+		if !exact || idx < 0 {
+			if live := fetcher.GetLastClose("^VIX"); live > 0 {
+				r.VixPrevClose = live
+			}
 		}
 	}
 
@@ -146,6 +185,13 @@ func ComputeGlobal(parquetPath, targetDate string) (*GlobalRow, error) {
 			start := idx - 4
 			if start >= 0 {
 				r.Usdidr5dReturn = (s.closes[idx] - s.closes[start]) / s.closes[start]
+			}
+		}
+		exact := idx >= 0 && s.dates[idx].Truncate(24*time.Hour).Equal(tMinus1.Truncate(24*time.Hour))
+		if !exact || idx < 0 {
+			if live := fetcher.GetLastClose("IDR=X"); live > 0 && idx > 0 {
+				r.UsdidrPrevClose = live
+				r.UsdidrPrevReturn = (live - s.closes[idx-1]) / s.closes[idx-1]
 			}
 		}
 	}
@@ -187,4 +233,89 @@ func gPtr(v float64) *float64 {
 		return nil
 	}
 	return &v
+}
+
+// findPrevIdx returns the index of the most recent date strictly before target.
+func findPrevIdx(dates []time.Time, target time.Time) int {
+	targetDate := target.Truncate(24 * time.Hour)
+	best := -1
+	for i := 0; i < len(dates); i++ {
+		d := dates[i].Truncate(24 * time.Hour)
+		if d.Before(targetDate) {
+			best = i
+		}
+	}
+	return best
+}
+
+// computeIhsgProxy computes an IHSG close proxy from 1h bars.
+// Uses the top-50 equal-weight basket: average close of the 50 most actively traded tickers.
+// Scaling: proxy = refIhsg * (targetBasketAvg / refBasketAvg)
+func computeIhsgProxy(yf1hPath string, targetDate time.Time, refDate time.Time, refIhsg float64) float64 {
+	type hBar struct {
+		Datetime time.Time `parquet:"datetime"`
+		Ticker   string    `parquet:"ticker"`
+		Close    float64   `parquet:"close"`
+		Volume   float64   `parquet:"volume"`
+	}
+	bars, err := parquet.ReadFile[hBar](yf1hPath)
+	if err != nil || len(bars) == 0 {
+		return 0
+	}
+
+	// Aggregate: ticker -> total turnover, last close per date
+	type tickerData struct{ turnover float64; closes map[string]float64 }
+	tickerMap := make(map[string]*tickerData)
+
+	for _, b := range bars {
+		d := b.Datetime.Format("2006-01-02")
+		t := strings.TrimSuffix(b.Ticker, ".JK")
+		td, ok := tickerMap[t]
+		if !ok {
+			td = &tickerData{closes: make(map[string]float64)}
+			tickerMap[t] = td
+		}
+		td.turnover += b.Close * b.Volume
+		if _, has := td.closes[d]; !has {
+			td.closes[d] = b.Close
+		}
+	}
+
+	// Pick top-50 by total turnover
+	type kv struct{ t string; v float64 }
+	var ranked []kv
+	for t, td := range tickerMap {
+		ranked = append(ranked, kv{t, td.turnover})
+	}
+	sort.Slice(ranked, func(i, j int) bool { return ranked[i].v > ranked[j].v })
+	topN := 50
+	if topN > len(ranked) {
+		topN = len(ranked)
+	}
+	top50 := ranked[:topN]
+
+	refDateStr := refDate.Format("2006-01-02")
+	tgtDateStr := targetDate.Format("2006-01-02")
+
+	var refSum, tgtSum float64
+	var refCnt, tgtCnt int
+	for _, tk := range top50 {
+		td := tickerMap[tk.t]
+		if c, ok := td.closes[refDateStr]; ok {
+			refSum += c
+			refCnt++
+		}
+		if c, ok := td.closes[tgtDateStr]; ok {
+			tgtSum += c
+			tgtCnt++
+		}
+	}
+
+	if refCnt < 10 || tgtCnt < 10 {
+		return 0
+	}
+
+	refAvg := refSum / float64(refCnt)
+	tgtAvg := tgtSum / float64(tgtCnt)
+	return refIhsg * (tgtAvg / refAvg)
 }

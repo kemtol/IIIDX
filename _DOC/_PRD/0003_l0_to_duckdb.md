@@ -487,6 +487,16 @@ Semua open question dari draft 0.1 sudah diputuskan (2026-04-29):
 - **PRD 0005**: Training snapshot pattern — frozen parquet per model version, immutable, reproducible. Mencegah insiden v18-class.
 - **PRD 0006** (speculative): Observability layer — query log, fetch SLA dashboard.
 
+### 11.1 Orphan Sources (Deferred from L0 Migration)
+
+- **`ipot_ohlcv_1h.parquet`** — produced by `pipeline/fetch/fetch_ohlcv_ipot.py`, but **no live consumer**. Audit 2026-05-01 confirmed:
+  - Zero `read_parquet("ipot_ohlcv_1h…")` references in `pipeline/feature/`, `edges/`, `inferences/bsjp/golang/`, or current code paths.
+  - Former Python consumer `inferences/bsjp/python/fetch.py` has been archived to `_ARCH/`.
+  - `run_inference_bsjp.sh` still calls the fetcher (Step 1) and references `inferences/bsjp/python/fetch.py` (Step 2) — both broken-but-harmless because nobody runs the cron.
+  - File: 13 KB, 364 rows, last modified 2026-04-25.
+
+  **Decision**: defer. Don't author schema, don't add to `L0_SOURCES`, don't include in continuity gate. The IPOT WebSocket fetcher is preserved as-is in case Go inference later wants real-time prices to bypass yfinance afternoon-session gaps. If/when a consumer lands, write a focused mini-PRD that adds it to L0 (Phase 4c). Until then it stays parquet-only.
+
 ---
 
 ## 12) Implementation Structure (Code Layout)
@@ -718,3 +728,5 @@ Total: ~13 file baru, ~850 LoC.
 | 2026-04-29 | 0.2 | Resolve 5 open questions: (1) audit timestamps via app layer, no triggers; (2) backup retention 3-tier weekly/monthly/yearly; (3) validator per-dtype tolerance dengan rtol=1e-9 untuk float; (4) broksum chunk per-minggu dengan resume state JSON; (5) Stockbit XL out-of-scope, masuk PRD 0004 (L1 derived dari broksum). Update §4.2, §5.2, §5.3, §6.1, §7, §9, §11. |
 | 2026-04-29 | 0.3 | Add §12 Implementation Structure: directory layout, feature flag state machine (3 stages × 3 flags per source), gateway pattern fetch + reader, end-to-end flow per phase, rollback shape per stage, Phase 0 deliverables list (~13 files, ~850 LoC). Blueprint untuk start implementation. |
 | 2026-04-29 | 0.4 | Add Precondition #4: continuity test wajib pass sebelum merge tiap fetch script refactor — assert parquet output identik pre/post refactor dengan default flags. Add Continuity Invariants section (§3) — 3 aturan operasional yang menjamin current pipeline tidak putus selama migrasi. Update Phase 0 deliverables (§7) untuk include continuity test + writers/readers/config gateway files. |
+| 2026-05-01 | 0.5 | Resolve carryover audit gap. Add §11.1 "Orphan Sources" — `ipot_ohlcv_1h.parquet` deferred (zero live consumer; archived Python inference path no longer reads it; Go path doesn't reference it). Not added to `L0_SOURCES`; fetcher preserved for future Go inference revival. Note: `run_inference_bsjp.sh` chain is broken-but-harmless (references `inferences/bsjp/python/fetch.py` which moved to `_ARCH/`) — flagged in `program.md` Suspended/Needs Attention. |
+| 2026-05-01 | 0.6 | Phase 1 quick win documented. `master_emiten` + `master_broker` schemas authored, `pipeline/migrations/0003_phase1_master.py` ran initial bulk load (773 + 92 rows), validator parity 0 diffs both tables. **Two PRD-relevant bugs caught via real-data run**: (a) DuckDB rejects `%` in unquoted identifiers — fixed by double-quoting all identifiers in `_base.py` SQL generators; (b) `BaseValidator._compare_column` flagged 100% diff on TIMESTAMP cols because parquet stores ISO strings while DuckDB returns `datetime64` — fixed via `pd.to_datetime` normalization branch. Continuity gate auto-extended to 4 tests (no edits). Phase 1 fetch script refactor pending; canary stage 0 still active for both master sources. |

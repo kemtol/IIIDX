@@ -75,6 +75,30 @@ OUTCOME_COLS = {
     "label_sl3",
     "label_name",
 }
+POLICY_ONLY_COLS = {
+    "pre14_prev_close",
+    "pre14_return_from_prev_close",
+    "pre14_ara_limit_pct",
+    "pre14_ara_distance_pct",
+    "pre14_is_ara_like",
+    "pre14_ara_price",
+    "pre14_ara_touched",
+    "pre14_ara_touch_hour",
+    "pre14_ara_touched_bar_count",
+    "pre14_ara_release_wick_count",
+    "pre14_ara_release_wick_ratio",
+    "pre14_ara_release_wick_depth_max",
+    "pre14_ara_release_wick_depth_mean",
+    "pre14_ara_close_at_ara_count",
+    "pre14_ara_flat_ohlc_count",
+    "pre14_ara_last_bar_touched",
+    "pre14_ara_last_bar_release",
+    "pre14_ara_last_bar_close_at_ara",
+    "pre14_ara_last_bar_locked",
+    "pre14_ara_last_bar_release_depth",
+    "pre14_ara_locked_proxy",
+    "pre14_ara_touched_released",
+}
 EXECUTION_PRICE_COLS = [
     "entry_price",
     "exit_price",
@@ -121,6 +145,23 @@ HARD_PRUNED_BROKER_FEATURES = [
     "tfl_net_buy_ma_20_sum",
 ]
 
+FEATURE_BLACKLIST_PRESETS = {
+    "none": [],
+    "preclose14": [
+        # Same-day closing/EOD features that are not available before a
+        # realistic near-close order decision around 14:59 WIB.
+        "close_ret_last1h",
+        "close_vs_open_day",
+        "close_range_pct",
+        "close_to_vwap",
+        "open_pm_to_vwap_am",
+        "vwap_trend",
+        "last_hour_above_vwap",
+        "close_drive",
+        "vol_above_vwap_pct",
+    ],
+}
+
 
 @dataclass
 class PolicyConfig:
@@ -153,6 +194,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--feature-prune-top-n", type=int, default=0,
                         help="Max features to keep from ranked candidates. 0 = disable pruning, use all numeric columns.")
     parser.add_argument("--feature-importance-path", type=Path, default=DEFAULT_FEATURE_IMPORTANCE_PATH)
+    parser.add_argument(
+        "--feature-blacklist",
+        type=str,
+        default="",
+        help="Comma-separated feature names to exclude after feature selection.",
+    )
+    parser.add_argument(
+        "--feature-blacklist-preset",
+        type=str,
+        choices=sorted(FEATURE_BLACKLIST_PRESETS),
+        default="none",
+        help="Named feature blacklist preset. 'preclose14' removes same-day EOD/close15 features.",
+    )
     parser.add_argument(
         "--feature-modules-dir", type=Path, default=None,
         help="Directory with feature module parquets (*_features.parquet). "
@@ -196,6 +250,29 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.0,
         help="If >0, veto execution on days where vix_prev_close > this threshold (Regime Filter).",
+    )
+    parser.add_argument(
+        "--max-pre14-market-cost-est",
+        type=float,
+        default=0.0,
+        help="If >0 and pre14_market_cost_est is available, only execute picks with estimated market cost <= this value.",
+    )
+    parser.add_argument(
+        "--min-pre14-turnover-until14",
+        type=float,
+        default=0.0,
+        help="If >0 and pre14_turnover_until14 is available, only execute picks with pre-14 turnover >= this IDR value.",
+    )
+    parser.add_argument(
+        "--min-entry-price-filter",
+        type=float,
+        default=0.0,
+        help="If >0, only execute picks with entry_price >= this value.",
+    )
+    parser.add_argument(
+        "--exclude-pre14-ara-like",
+        action="store_true",
+        help="Exclude picks already near IDX ARA limit by 14:59, using pre14_is_ara_like from the feature module.",
     )
     
     parser.add_argument(
@@ -294,6 +371,21 @@ def parse_mode_list(text: str) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+def parse_str_list(text: str) -> list[str]:
+    out = []
+    for token in text.split(","):
+        token = token.strip()
+        if token:
+            out.append(token)
+    return list(dict.fromkeys(out))
+
+
+def resolve_feature_blacklist(args: argparse.Namespace) -> list[str]:
+    preset = FEATURE_BLACKLIST_PRESETS.get(args.feature_blacklist_preset, [])
+    explicit = parse_str_list(args.feature_blacklist)
+    return list(dict.fromkeys([*preset, *explicit]))
+
+
 def load_ranked_feature_candidates(path: Path, top_n: int) -> tuple[list[str], str]:
     if top_n <= 0:
         return [], "disabled"
@@ -369,7 +461,7 @@ def daily_topk_metrics(df: pd.DataFrame, k_list: list[int]) -> dict[str, dict[st
 
 
 def choose_feature_columns(df: pd.DataFrame, ranked_candidates: list[str] | None = None) -> list[str]:
-    blocked = OUTCOME_COLS | ID_COLS
+    blocked = OUTCOME_COLS | ID_COLS | POLICY_ONLY_COLS
     numeric_cols = [c for c in df.columns if c not in blocked and pd.api.types.is_numeric_dtype(df[c])]
 
     if ranked_candidates:
@@ -492,6 +584,10 @@ def simulate_portfolio(
     tp_pct: float,
     sl_pct: float,
     vix_threshold: float = 0.0,
+    max_pre14_market_cost_est: float = 0.0,
+    min_pre14_turnover_until14: float = 0.0,
+    min_entry_price_filter: float = 0.0,
+    exclude_pre14_ara_like: bool = False,
     execution_model: str = "limit",
 ) -> tuple[pd.DataFrame, dict[str, float]]:
     required = {"date", "ticker", "pred_proba", TARGET_COL, "risk_norm"} | set(EXECUTION_PRICE_COLS)
@@ -513,6 +609,17 @@ def simulate_portfolio(
             day = day[day["entry_price"] > 0].copy()
         elif "entry_price_opening" in day.columns:
             day = day[day["entry_price_opening"] > 0].copy()
+        if min_entry_price_filter > 0 and "entry_price" in day.columns:
+            day = day[day["entry_price"] >= min_entry_price_filter].copy()
+        if max_pre14_market_cost_est > 0 and "pre14_market_cost_est" in day.columns:
+            day["pre14_market_cost_est"] = pd.to_numeric(day["pre14_market_cost_est"], errors="coerce")
+            day = day[day["pre14_market_cost_est"] <= max_pre14_market_cost_est].copy()
+        if min_pre14_turnover_until14 > 0 and "pre14_turnover_until14" in day.columns:
+            day["pre14_turnover_until14"] = pd.to_numeric(day["pre14_turnover_until14"], errors="coerce")
+            day = day[day["pre14_turnover_until14"] >= min_pre14_turnover_until14].copy()
+        if exclude_pre14_ara_like and "pre14_is_ara_like" in day.columns:
+            day["pre14_is_ara_like"] = pd.to_numeric(day["pre14_is_ara_like"], errors="coerce").fillna(0.0)
+            day = day[day["pre14_is_ara_like"] < 0.5].copy()
         if day.empty:
             rows.append(
                 {
@@ -910,6 +1017,7 @@ def main() -> None:
     policy_modes = parse_mode_list(args.policy_modes)
     k_grid = parse_int_list(args.max_positions_grid)
     w_grid = parse_float_list(args.max_weight_grid)
+    feature_blacklist = resolve_feature_blacklist(args)
 
     if not args.training_path.exists():
         fail_with_reason(args.output_dir, "MISSING_TRAINING_DATA", {"path": str(args.training_path)})
@@ -968,6 +1076,19 @@ def main() -> None:
     if not feature_cols:
         fail_with_reason(args.output_dir, "NO_USABLE_FEATURE_COLUMNS")
 
+    blacklisted_present = sorted(set(feature_cols) & set(feature_blacklist))
+    if blacklisted_present:
+        feature_cols = [c for c in feature_cols if c not in set(feature_blacklist)]
+    if not feature_cols:
+        fail_with_reason(
+            args.output_dir,
+            "NO_USABLE_FEATURE_COLUMNS_AFTER_BLACKLIST",
+            {
+                "feature_blacklist_preset": args.feature_blacklist_preset,
+                "feature_blacklist": feature_blacklist,
+            },
+        )
+
     leakage_in_features = sorted(set(feature_cols) & OUTCOME_COLS)
     if leakage_in_features:
         fail_with_reason(args.output_dir, "LEAKAGE_FEATURES_DETECTED", {"columns": leakage_in_features})
@@ -981,11 +1102,40 @@ def main() -> None:
     backtest_cols = list(EXECUTION_PRICE_COLS)
     if "close_return_to_cutoff" in df.columns:
         backtest_cols.append("close_return_to_cutoff")
+    for c in [
+        "pre14_market_cost_est",
+        "pre14_turnover_until14",
+        "pre14_prev_close",
+        "pre14_return_from_prev_close",
+        "pre14_ara_limit_pct",
+        "pre14_ara_distance_pct",
+        "pre14_is_ara_like",
+        "pre14_ara_price",
+        "pre14_ara_touched",
+        "pre14_ara_touch_hour",
+        "pre14_ara_touched_bar_count",
+        "pre14_ara_release_wick_count",
+        "pre14_ara_release_wick_ratio",
+        "pre14_ara_release_wick_depth_max",
+        "pre14_ara_release_wick_depth_mean",
+        "pre14_ara_close_at_ara_count",
+        "pre14_ara_flat_ohlc_count",
+        "pre14_ara_last_bar_touched",
+        "pre14_ara_last_bar_release",
+        "pre14_ara_last_bar_close_at_ara",
+        "pre14_ara_last_bar_locked",
+        "pre14_ara_last_bar_release_depth",
+        "pre14_ara_locked_proxy",
+        "pre14_ara_touched_released",
+    ]:
+        if c in df.columns and c not in backtest_cols:
+            backtest_cols.append(c)
     if drop_cols:
         feature_cols = [c for c in feature_cols if c not in drop_cols]
         base_cols = ["date", "ticker", TARGET_COL] + backtest_cols
-        pre_oot_df = pre_oot_df[base_cols + feature_cols].copy()
-        oot_df = oot_df[base_cols + feature_cols].copy()
+        model_cols = base_cols + [c for c in feature_cols if c not in set(base_cols)]
+        pre_oot_df = pre_oot_df[model_cols].copy()
+        oot_df = oot_df[model_cols].copy()
 
     # Walk-forward CV for robust policy search.
     wf_splits = build_walkforward_splits(
@@ -1013,6 +1163,11 @@ def main() -> None:
         f"[Feature] selected={len(feature_cols)}, dropped={len(drop_cols)}, "
         f"source={feature_source}, prune_top_n={args.feature_prune_top_n}"
     )
+    if feature_blacklist:
+        print(
+            f"[FeatureBlacklist] preset={args.feature_blacklist_preset}, "
+            f"configured={len(feature_blacklist)}, present_dropped={len(blacklisted_present)}"
+        )
     print(f"[WalkForward] folds={len(wf_splits)}, each_valid_days={args.walkforward_valid_days}")
 
     wf_records = []
@@ -1086,6 +1241,10 @@ def main() -> None:
                         tp_pct=args.tp_pct,
                         sl_pct=args.sl_pct,
                         vix_threshold=args.vix_threshold,
+                        max_pre14_market_cost_est=args.max_pre14_market_cost_est,
+                        min_pre14_turnover_until14=args.min_pre14_turnover_until14,
+                        min_entry_price_filter=args.min_entry_price_filter,
+                        exclude_pre14_ara_like=args.exclude_pre14_ara_like,
                         execution_model=args.execution_model,
                     )
                     if summary["trading_days"] < args.min_policy_trading_days:
@@ -1130,6 +1289,10 @@ def main() -> None:
             adaptive_threshold_quantile=args.adaptive_threshold_quantile,
             tp_pct=args.tp_pct,
             sl_pct=args.sl_pct,
+            max_pre14_market_cost_est=args.max_pre14_market_cost_est,
+            min_pre14_turnover_until14=args.min_pre14_turnover_until14,
+            min_entry_price_filter=args.min_entry_price_filter,
+            exclude_pre14_ara_like=args.exclude_pre14_ara_like,
             execution_model=args.execution_model,
         )
         best_policy = fallback_policy
@@ -1202,6 +1365,10 @@ def main() -> None:
         adaptive_threshold_quantile=args.adaptive_threshold_quantile,
         tp_pct=args.tp_pct,
         sl_pct=args.sl_pct,
+        max_pre14_market_cost_est=args.max_pre14_market_cost_est,
+        min_pre14_turnover_until14=args.min_pre14_turnover_until14,
+        min_entry_price_filter=args.min_entry_price_filter,
+        exclude_pre14_ara_like=args.exclude_pre14_ara_like,
         execution_model=args.execution_model,
     )
 
@@ -1266,15 +1433,24 @@ def main() -> None:
     wf_metrics_df.to_csv(wf_metrics_path, index=False)
 
     status = "PASS" if oot_port_summary["mean_daily_net_return"] > 0 else "FAIL:NEGATIVE_OOT_EXPECTANCY"
+    label_names = set(df["label_name"].dropna().astype(str).unique()) if "label_name" in df.columns else set()
+    is_close10 = any("close10" in x for x in label_names) or "close10" in str(args.training_path).lower()
+    strategy_name = "BSJP close10" if is_close10 else "BSJP overnight"
+    exit_time = "10:xx T+1" if is_close10 else "09:xx T+1"
+    exit_rule = (
+        "sell next trading day using hour-10 open as proxy"
+        if is_close10
+        else "sell next trading day using hour-9 open as proxy"
+    )
     metrics_payload = {
         "status": status,
         "northstar": {
             "capital_idr": args.capital_idr,
-            "strategy": "BSJP overnight",
+            "strategy": strategy_name,
             "entry_time": "15:xx",
             "entry_rule": "buy near close on day T using hour-15 close as proxy",
-            "exit_time": "09:xx T+1",
-            "exit_rule": "sell next trading day using hour-9 open as proxy",
+            "exit_time": exit_time,
+            "exit_rule": exit_rule,
             "target": "positive_net_expectancy_after_costs",
         },
         "data": {
@@ -1295,6 +1471,9 @@ def main() -> None:
         "features": {
             "selected_count": int(len(feature_cols)),
             "dropped_columns": drop_cols,
+            "feature_blacklist_preset": args.feature_blacklist_preset,
+            "feature_blacklist": feature_blacklist,
+            "blacklisted_columns_dropped": blacklisted_present,
             "feature_prune_top_n": int(args.feature_prune_top_n),
             "feature_source": feature_source,
             "ranked_candidates_count": int(len(ranked_candidates)),
@@ -1359,6 +1538,10 @@ def main() -> None:
             "tp_pct": float(args.tp_pct),
             "sl_pct": float(args.sl_pct),
             "mean_effective_threshold_oot": float(oot_port_summary.get("mean_effective_threshold", float("nan"))),
+            "max_pre14_market_cost_est": float(args.max_pre14_market_cost_est),
+            "min_pre14_turnover_until14": float(args.min_pre14_turnover_until14),
+            "min_entry_price_filter": float(args.min_entry_price_filter),
+            "exclude_pre14_ara_like": bool(args.exclude_pre14_ara_like),
         },
         "artifacts": {
             "model_path": str(model_path),

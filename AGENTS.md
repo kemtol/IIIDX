@@ -1,8 +1,8 @@
 # AGENTS.md
 
-Python 3.12 stock screener for Indonesian IDX equities. Two strategies (BSJP active, BPJS paused).
+Python 3.12 stock screener for Indonesian IDX equities. BSJP active, BPJS paused.
 
-**ALWAYS read `program.md` first.** It defines the two-product architecture, invariants, and session protocol. This file is the condensed reference.
+**ALWAYS read `program.md` first.** It defines the two-product architecture, invariants, session protocol, and current state. This file is the condensed reference.
 
 ## Two Products — Do Not Confuse
 
@@ -12,7 +12,6 @@ Python 3.12 stock screener for Indonesian IDX equities. Two strategies (BSJP act
 | **Code** | `edges/`, `generate_datamart.py`, `train_lightgbm.py` | `inferences/`, `fetch.py`, `run.py` |
 | **Data** | L0 → L1 → L2 parquet | DuckDB (`inferences/bsjp/db/`) |
 | **Schedule** | On-demand / after retrain | Daily cron 17:30 WIB |
-| **Deploy** | Dev machine | VPS 4GB RAM |
 | **Touch NEVER** | Don't touch `inferences/` | Don't touch `edges/` or L1/L2 |
 
 ## Venv
@@ -24,29 +23,37 @@ pip install -r requirements.txt
 
 ## Critical Invariants
 
-**No look-ahead bias** — the most important rule:
-- Broker features shifted by 1 day (T-1 features predict T outcome).
-- Entry price is close@15:xx (BSJP) — must be known at decision time.
-- Exit price (open T+1 @09:05) is label only, never a feature.
-- Walk-forward validation: strict chronological split, no randomization.
+**No look-ahead bias** — violating this invalidates everything:
+- Broker features shifted by 1 day (`groupby(ticker,broker).shift(1)` at L1).
+- Entry price is close@15:xx — must be known at decision time.
+- Exit price is label only, never a feature.
+- Objective must be explicit:
+  - `overnight`: exit open@09 T+1.
+  - `close10`: exit open@10 T+1.
+- Walk-forward: strict chronological split, no randomization. OOT = last 100 trading days, used ONCE.
+- AUC OOT in 0.55–0.62 is healthy. >0.65 = suspect leakage. >0.70 = almost certainly leakage.
+- `min_data_in_leaf=100`, `lambda_l1/l2=1.0-1.5` is the sweet spot. `md=500` (v7 default) is over-regularized.
+- **LGBMRanker failed** (v9d) — always use binary classifier.
 
 ## Data Layers
 
 | Layer | Path | Grain |
 |-------|------|-------|
-| Level 0 (Raw) | `data/Level_0_Raw/` | per source |
-| Level 1 (Features) | `data/Level_1_Features/broksum_datamart.parquet` | (date, broker, ticker) |
-| Level 1 (Modules) | `data/Level_1_Features/modules/*_features.parquet` | (date, ticker) or (date,) |
-| Level 2 (Training) | `data/Level_2_Datamart/training_datamart_bsjp_overnight.parquet` | (date, ticker) |
-| Model artifacts | `model/BSJP/bsjp_vN/` | metrics.json, model .txt |
-| **Inference (DuckDB)** | `inferences/bsjp/db/inference.duckdb` | (date, ticker) |
+| L0 Raw | `data/Level_0_Raw/` | per source |
+| L1 Features | `data/Level_1_Features/broksum_datamart.parquet` | (date, broker, ticker) |
+| L1 Modules | `data/Level_1_Features/modules/*_features.parquet` | (date, ticker) or (date,) |
+| L2 Training | `data/Level_2_Datamart/` | (date, ticker) |
+| Model | `model/BSJP/bsjp_vN/` | metrics.json, model .txt |
+| **Inference** | `inferences/bsjp/db/inference.duckdb` | (date, ticker) |
 
-**Production inference uses DuckDB, NOT L1/L2 parquet rewrite.**
+**Inference reads DuckDB, NOT L1/L2 parquet.** Never trigger L1/L2 rebuild from inference code.
 
-## Training (batch, for research/retrain)
+## Commands
+
+### Training (research/retrain)
 
 ```bash
-bash pipeline/run/run_fetch_broksum.sh
+bash pipeline/run/run_fetch_broksum.sh      # ~30-60 min, resume-capable
 bash pipeline/run/run_feature_l1.sh
 cd edges/bsjp_overnight_sl2/scripts
 python generate_datamart.py --strategy-mode bsjp
@@ -58,67 +65,107 @@ python train_lightgbm.py \
   --oot-valid-days 100
 ```
 
-## Inference (daily production)
+### Inference (daily production)
 
 ```bash
-# One-time bootstrap:
-python inferences/bsjp/python/bootstrap_feature_store.py --replace
+# Cron (after all L0 fetchers complete):
+bash pipeline/run/run_inference_bsjp.sh
 
-# Daily cron:
-python inferences/bsjp/python/fetch.py
-python inferences/bsjp/python/run.py --variant v15 --log-picks
+# Manual:
+cd inferences/bsjp/golang && go build -o bsjp ./cmd/bsjp/
+./bsjp fetch --date $(date +%Y-%m-%d) --force
+./bsjp predict --variant v19d_close10_preclose14_orb_md100_l21.5 --log
+./bsjp predict --variant v15 --log
 ```
 
-**Alternative: Go binary (no Python runtime)**
+### Go binary
 
 ```bash
-inferences/bsjp/golang/bsjp bootstrap
-inferences/bsjp/golang/bsjp fetch
-inferences/bsjp/golang/bsjp predict --variant v15 --log
+cd inferences/bsjp/golang && go build -o bsjp ./cmd/bsjp/
+
+# One-time bootstrap (from existing parquet L0):
+./bsjp bootstrap
+
+# Daily fetch (rebuilds features_store for latest date):
+./bsjp fetch
+
+# Preflight check (L0 + DuckDB + model readiness):
+./bsjp check --verbose --telegram   # sends to Telegram + Discord
+
+# Fetch 1h bars from Yahoo Finance (optional, cron handles L0):
+./bsjp download --limit 100
+
+# Predict v19d + v20 ARA policy (auto-active):
+./bsjp predict --variant v19d_close10_preclose14_orb_md100_l21.5 --log
+
+# Predict v15 (no ARA policy):
+./bsjp predict --variant v15 --log
 ```
 
-**DO NOT** trigger L1/L2 rebuild from `fetch.py` on a cron. The default fast path reads L0 and upserts to DuckDB without touching parquet.
+### Calibration (Go vs Python)
 
-## Model Versions
+```bash
+cd inferences/bsjp/golang
+go build -o bsjp ./cmd/bsjp/
+GOTOOLCHAIN=local go test ./internal/features/ -v -run TestCalibrate 2>&1 | tee /tmp/cal.log
+```
 
-- **BSJP v15** — current active (AUC 0.602, MaxDD -15.3%, IHSG MA). Clean datamart, Monte Carlo validated.
-- **BSJP v7** — reference baseline (AUC 0.602, MaxDD -30%).
-- **Close10 models** (v10, grid search) — **DATA LEAKAGE**: leaked `exit_price`/`overnight_return`/`close_ret_last1h` as features. INVALID, re-run needed with clean datamart.
-- **BPJS** — PAUSED. 1h window too narrow to clear break-even.
+### Tests
+
+```bash
+pytest pipeline/storage/tests/test_continuity.py -v   # merge gate, 4 tests
+```
 
 ## Feature Modules (Preferred Fast Path)
 
-Training with `--feature-modules-dir data/Level_1_Features/modules` loads precomputed feature parquets via LEFT JOIN (5-10s) instead of monolithic 3-min rebuild. Byte-identical feature set. Add new features by dropping a `*_features.parquet` into modules dir.
+`--feature-modules-dir data/Level_1_Features/modules` loads precomputed feature parquets via LEFT JOIN (5-10s) instead of monolithic 3-min rebuild. Byte-identical feature set (252/252 verified). Add features by dropping `*_features.parquet` into `modules/`. 7 modules currently, 252 features total.
 
-## Current State & Priorities
+## Model Version Warnings
 
-See `program.md` §4 and `model/BSJP/LATEST.md` for full details. Key priorities:
-1. Paper trade v15
-2. Re-run grid search with clean datamart
-3. Fix Go inference parity (overnight + yf_daily calibration)
-4. Fix Python `fetch_lightweight.py` merge bug
+- **v15** — production inference variant (AUC 0.602, overnight, clean).
+- **v19d** — active ARA-continuation research baseline. Preclose14 ORB features, executable; fillability unresolved. Go inference working (5 trees, 306 features, 360 cols/ticker).
+- **v20** — ARA-state policy layer (`v20_clean`) auto-active when variant contains `v19d`/`v20`. Keeps `single_release` + `near_ara_not_touched_0_3pct`, vetoes rest. Implemented in Go predict path.
+- **v18 close10 rebuild** — historical reference only. Depends on close15/EOD features unavailable before 14:59 decision.
+- **Close10 v10/grid models** — **DATA LEAKAGE**: `close_ret_last1h` leaked as feature. INVALID; do not use.
+- **OLD `training_datamart_bsjp_overnight.parquet`** — misleading filename; labels are actually `bsjp_close10_sl2` (exit open@10). Do not call close10 artifacts `overnight`.
+- **`training_datamart_bsjp_overnight_fixed.parquet`** — hybrid forensic artifact, not clean canonical training data.
+- **BPJS** — PAUSED. 1h window too narrow to clear break-even.
+
+See `model/BSJP/LATEST.md` for full iteration history.
+
+## L0 → DuckDB Migration (PRD 0003)
+
+- **Phase 0: done.** Storage abstraction library complete (`pipeline/storage/`): writers, readers, validators (DuckDB `%` quoting, timestamp normalization), 3-tier backup, migration CLI, continuity gate.
+- **Phase 1 quick win: done.** `master.duckdb` populated (773 emiten + 92 broker rows), validator parity 0 diffs.
+- **Active invariant:** default canary flags = stage 0 (parquet only). All current pipelines untouched until env vars (`L0_*_DUCKDB_WRITE=true`) promote individual sources.
+- **Storage auto-registration:** a new schema dropped into `pipeline/storage/schemas/<source>.py` + registered in `schemas/__init__.py` is automatically picked up by writers, readers, validators, migration, and continuity gate. Verified end-to-end on `master_broker`.
+- **Continuity gate** (`test_continuity.py`): must pass before any fetch script refactor. Currently 4 parametrized tests across 2 schemas.
+- **Next:** refactor `pipeline/fetch/fetch_emiten.py` and `fetch_master_broker_idx.py` to call `write_l0()` instead of `df.to_parquet()`.
+
+## Go Parity Gaps
+
+- `yf_daily.go` — fixed (PERFECT match after `.JK` suffix strip). 58/58 calibrated.
+- `overnight.go` — fixed (rewrote from 1h to daily parquet). 24/27 PERFECT, 3 cols p10 epsilon.
+- `broker_agg.go` — base flow features calibrated (18/18 PERFECT vs fresh Python). Timeflow/broker-type/context features (~96 cols) from bootstrap (stale), not yet regenerated in Go.
+- Stockbit/XL — implemented (4 cols, 98/98 PERFECT).
+- Preclose14 volume — fixed (min_periods in rollingMAShifted). Daily vol/turnover MA 6/6 PERFECT. 2 sparse tickers only.
+- `preclose14.go` — VWAP, ORB, ARA-state features already Go-native via preclose14 module (115 cols).
+- `fetch_lightweight.py` — archived. Not needed for Go inference path.
+- `run_inference_bsjp.sh` — fixed (Go binary now).
 
 ## Known Issues
 
-- Close10 models and grid search have data leakage — re-train needed with clean datamart.
-- LGBMRanker failed (v9d) — use binary classifier.
-- `min_data_in_leaf=500` (v7 default) is over-regularized; `md=100, λ=1.0-1.5` is sweet spot.
-- VWAP and HMM features not needed for BSJP v15 inference path.
-- `fetch_lightweight.py` has duplicate column merge bug (670 lines, blocked).
+- Cross-sectional features (`sq_`, `xc_`, `yp_`, `pd_`) have NOT been audited for lookahead safety.
+- `ipot_ohlcv_1h.parquet` has zero live consumers — PRD 0003 deferred; fetcher still runs but removed from inference cron.
+- Training scripts pre-27-Apr were lost; always version-lock with git.
+- Broker timeflow/context features (~96 cols) not regenerated in Go — rely on bootstrap values.
+- L0 data is not version-locked between training and inference — small distribution shift possible.
 
-## Directory Structure for New Strategies
+## Conventions
 
-```
-edges/<name>/
-  edge.md              # spec, iterations, lessons learned
-  scripts/
-    generate_datamart.py   # L1 → L2 aggregation + labeling
-    train_lightgbm.py      # walk-forward training + simulation
-  analysis/            # notebooks for post-hoc evaluation
-```
-
-Level 0 and Level 1 are shared across edges.
-
-## Broker Activity Fetcher
-
-`run_fetch_broksum.sh` has resume capability (`_LOG/broksum_resume_state.json`). Runtime 30-60 minutes. Run after market close (~17:35 WIB).
+- **All logs go to `_LOG/`** — not `edges/.../` or `inferences/.../`.
+- `float32` dtype for all feature columns — must be consistent training↔inference.
+- **No hardcoded paths** — use repo-root-relative paths. Shell scripts use `$IDX_DIR`.
+- After training, update `model/BSJP/LATEST.md`. Never delete old models — move to `model/BSJP/_ARCH/`.
+- Session notes: write to `_MEMORY/YYYYMMDDHHMMSS.md`. Do NOT leave TODO comments in code.
+- Broker fetcher: `run_fetch_broksum.sh` has resume capability (`_LOG/broksum_resume_state.json`). Run after 17:35 WIB.

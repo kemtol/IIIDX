@@ -1,7 +1,9 @@
 aiohttp>=3.9.0
 duckdb==1.5.2
+matplotlib>=3.10.0
 pandas>=2.0.0
 pyarrow>=14.0.0
 playwright>=1.52.0
+pytest>=8.0.0
 websockets>=12.0
 yfinance>=0.2.0

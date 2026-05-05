@@ -12,6 +12,8 @@
 | 29 Apr 15:55 | Re-ran `generate_datamart.py` + `train_lightgbm.py` with `--feature-modules-dir` — still 27 trees |
 | 29 Apr 17:15 | Found `model/BSJP/_BAK/bsjp_v18_market_100d_fix/` — restored to v18 dir |
 | 29 Apr 17:20 | Investigation: tested hyperparams, TP/SL, guard filter — confirmed root cause |
+| 29 Apr 21:30 | Corrected root cause: OLD datamart was close10 (`open@10 T+1`) despite `overnight` filename |
+| 29 Apr 21:46 | Rebuilt close10 v18-like datamart and trained `bsjp_v18_close10_rebuild` |
 
 ---
 
@@ -33,6 +35,8 @@ potentially different TP/SL) was **not recovered**.
 
 ## Root Cause: Data Divergence
 
+> **Correction after later forensics:** The divergence was not just an unknown pre/post 27-Apr data change. The main issue was an objective mismatch: the OLD v18 datamart was named `training_datamart_bsjp_overnight.parquet`, but its labels were actually `bsjp_close10_sl2` with exit `open@10 T+1`. The NEW rebuilt datamart was true overnight with exit `open@09 T+1`.
+
 ### Hypotheses Tested (All Disproven)
 
 | Hypothesis | Test | Result |
@@ -43,7 +47,7 @@ potentially different TP/SL) was **not recovered**.
 | Guard filter removal | 3,725 rows out of 114,766 (3.25%) filtered — tested impact | Too small to explain 305→27 |
 | Label distribution | Current L2: 37% positive rate, v17 folds: 36% — nearly identical | Not the cause |
 
-### Confirmed Root Cause
+### Original Confirmed Root Cause (Superseded)
 
 **The underlying data changed.**  Every retrain attempt — regardless of hyperparameters —
 produces exactly 27 trees at AUC ≈0.622.  This is the **optimal convergence point**
@@ -58,6 +62,37 @@ Without git history, the exact diff is unknown.  Likely candidates:
 - Feature module generation logic changed (column order, aggregation)
 - Universe filtering changed (different ticker inclusion)
 - Data source paths or join logic changed
+
+### Corrected Confirmed Root Cause
+
+The OLD v18 baseline:
+
+```text
+entry = close@15 T
+exit  = open@10 T+1
+label_name = bsjp_close10_sl2
+rows = 108,698
+```
+
+The NEW `training_datamart_bsjp_overnight.parquet`:
+
+```text
+entry = close@15 T
+exit  = open@09 T+1
+label_name = bsjp_overnight_sl2
+rows = 110,236
+```
+
+On 105,102 common `(date,ticker)` rows:
+
+| Column | Changed Rows |
+|---|---:|
+| `entry_price` | 0 |
+| `exit_price` | 85,945 (81.8%) |
+| `label_tp` | 32,967 (31.4%) |
+| `label_sl2` | 19,202 (18.3%) |
+
+This explains the 305-tree → 27/28-tree collapse. The model was no longer training on the same objective.
 
 ### Data Comparison (Current L2 vs v17 Training Output)
 
@@ -103,23 +138,64 @@ confirming the training data sets are not identical.
 
 ## Recovery Path
 
-### Option A: Diff Original L2 vs Rebuilt L2 (PENDING)
-User is uploading the original L2 datamart parquet.  Once available, compare:
-- Column set and order
-- Label distribution (`label_tp`, `overnight_return`)
-- Feature value ranges per column
-- Row count per date
+### Option A: Rebuild Close10 and Filter to OLD Universe (DONE)
 
-This will identify the exact change that reduced training complexity from
-305-tree to 27-tree.  With the diff in hand, `generate_datamart.py` can be
-corrected to reproduce the original behavior.
+Current `generate_datamart.py` supports `--exit-hour 10`. Rebuilding with close10 recovered the OLD objective.
+
+Artifacts:
+
+| Artifact | Meaning |
+|---|---|
+| `data/Level_2_Datamart/training_datamart_bsjp_close10_rebuild.parquet` | Full close10 rebuild, 424,909 rows, too broad for v18 reproduction |
+| `data/Level_2_Datamart/training_datamart_bsjp_close10_rebuild_v18like.parquet` | Full close10 rebuild filtered to OLD `(date,ticker)` universe, 108,698 rows |
+| `model/BSJP/bsjp_v18_close10_rebuild/` | Rebuilt v18-like model |
+
+Core drift between OLD and `*_v18like`:
+
+| Column | Changed Rows |
+|---|---:|
+| `entry_price` | 1 |
+| `exit_price` | 0 |
+| `overnight_return` | 1 |
+| `label_tp` | 1 |
+| `label_sl2` | 0 |
+
+Training result:
+
+| Metric | OLD v18 backup | `bsjp_v18_close10_rebuild` |
+|---|---:|---:|
+| Rows | 108,698 | 108,698 |
+| Features | 249 | 249 |
+| Best iteration | 305 | 408 |
+| OOT AUC | 0.6417 | 0.6501 |
+| Mean daily net | +0.94% | +1.30% |
+| CumNet | 1.238x | 2.126x |
+| MaxDD | -30.6% | -35.6% |
+
+Monte Carlo for `bsjp_v18_close10_rebuild`:
+
+| Horizon | Median Terminal | P(loss) | Mean MaxDD | P(MaxDD≤-30%) |
+|---|---:|---:|---:|---:|
+| 100d | 3.38x | 2.0% | -25.2% | 24.8% |
+| 252d | 22.98x | 0.05% | -32.2% | 54.6% |
+
+Status: PASS with material drawdown risk; paper-trade policy should be explicit before promotion.
+
+Recommended policy guard:
+
+| Policy | Mean Daily Net | CumNet | MaxDD | Worst Day | P(loss 100d) | P(MaxDD≤-30% 100d) |
+|---|---:|---:|---:|---:|---:|---:|
+| Raw k3/w34 | +1.30% | 2.126x | -35.6% | -10.3% | 2.00% | 24.83% |
+| Guard k3/w25 | +0.98% | 1.431x | -28.2% | -7.6% | 1.78% | 7.61% |
+
+Use `model/BSJP/bsjp_v18_close10_rebuild_policy_w25/` as the paper-trade candidate if approved.
 
 ### Option B: Accept 27 Trees
 The current model (27 trees, AUC 0.622) is production-viable.  It is smaller,
 faster, and less prone to overfitting.  The 0.05 AUC gap vs v17 may be acceptable.
 
-### Option C: Use v17 (from _BAK)
-305 trees, AUC 0.67, already in hand.  Deploy as v18 replacement.
+### Option C: Use v18 Close10 Rebuild
+408 trees, OOT AUC 0.650, objective recovered. Monte Carlo completed; recommended paper-trade policy is k=3 with max weight 25%.
 
 ### Option D: Fix generate_datamart.py, Rebuild from Original L0
 If the original `generate_datamart.py` cannot be recovered, reverse-engineer the
@@ -129,8 +205,7 @@ differences from the uploaded original L2 and patch the current script.
 
 ## Preventive Measures
 
-1. **`git init`** is the single most important missing piece.  Without it,
-   every file overwrite is irreversible.
+1. **~~`git init`~~** ✅ **DONE 2026-04-29** (commit `ce04e9c6`, 158 files, 34,842 insertions). Repo now version-controlled. `.gitignore` excludes data lake + model binaries + DuckDB files.
 2. **Never train to an existing model directory** — create `bsjp_vN+1/` per run.
 3. **Backup before every retrain**: `cp -r model/BSJP/bsjp_vN model/BSJP/_bak_vN_DATE/`
 4. **Lock training scripts**: `generate_datamart.py` and `train_lightgbm.py` should
@@ -139,6 +214,10 @@ differences from the uploaded original L2 and patch the current script.
    model version in `model/BSJP/bsjp_vN/run.sh` so it can be recreated.
 6. **Separate L0/L1/L2 from model artifacts**: The retrain should never
    clobber training data that was used to produce prior models.
+   → Structurally addressed by **PRD 0003** (`_DOC/_PRD/0003_l0_to_duckdb.md`):
+   L0 migrating from per-file parquet rewrite → DuckDB ACID upsert per source.
+   Single-row data corruption no longer requires full-file regeneration.
+   Phase 0 in progress as of 2026-04-30 (storage abstraction + master_emiten schema done).
 
 ---
 

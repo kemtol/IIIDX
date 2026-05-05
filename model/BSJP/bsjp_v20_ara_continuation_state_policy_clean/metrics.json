@@ -1,0 +1,39 @@
+{
+  "status": "RESEARCH_POLICY_LAYER",
+  "variant": "bsjp_v20_ara_continuation_state_policy_clean",
+  "source_model_dir": "/home/kemal/idx/model/BSJP/bsjp_v19d_close10_preclose14_orb_md100_l21.5",
+  "policy": {
+    "name": "clean",
+    "allowed_buckets": [
+      "ara_touched_single_release",
+      "near_ara_not_touched_0_3pct"
+    ],
+    "mechanic": "veto_after_original_v19d_selection_no_reweight"
+  },
+  "metrics": {
+    "portfolio_oot": {
+      "days": 100,
+      "trading_days": 42,
+      "positions": 48,
+      "mean_daily_net_return": 0.01206581668820562,
+      "mean_daily_gross_return": 0.014060368334171387,
+      "net_expectancy_per_trade": 0.1005484724017135,
+      "win_rate_days": 0.31,
+      "cumulative_net_return": 2.226468535989856,
+      "max_drawdown": -0.032319444444444456,
+      "volatility_daily": 0.024099202518881258,
+      "cumulative_net_return_50d": 0.6612833232611424,
+      "positions_50d": 20,
+      "trading_days_50d": 18,
+      "cumulative_net_return_20d": 0.22986499363186574,
+      "positions_20d": 8,
+      "trading_days_20d": 8
+    }
+  },
+  "artifacts": {
+    "portfolio_daily_path": "model/BSJP/bsjp_v20_ara_continuation_state_policy_clean/portfolio_daily.parquet",
+    "policy_trades_path": "model/BSJP/bsjp_v20_ara_continuation_state_policy_clean/policy_trades.parquet",
+    "policy_summary_path": "model/BSJP/bsjp_v20_ara_continuation_state_policy_clean/policy_summary.csv",
+    "valid_predictions_with_ara_state_path": "model/BSJP/bsjp_v20_ara_continuation_state_policy_clean/valid_predictions_with_ara_state.parquet"
+  }
+}
