@@ -586,6 +586,14 @@ func cmdCheckWithDB(repoRoot string, dbPath string, verbose bool, tgFlag bool) e
 	tMinus1 := prevTradingDay(time.Now()).Format("2006-01-02")
 	tMinus5 := time.Now().AddDate(0, 0, -5).Format("2006-01-02")
 
+	// If it's after 09:30 WIB, we expect today's data in DuckDB
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	nowWIB := time.Now().In(loc)
+	needDBDate := tMinus1
+	if nowWIB.Hour() > 9 || (nowWIB.Hour() == 9 && nowWIB.Minute() >= 30) {
+		needDBDate = today
+	}
+
 	type item struct {
 		Name   string
 		Status string
@@ -643,11 +651,12 @@ func cmdCheckWithDB(repoRoot string, dbPath string, verbose bool, tgFlag bool) e
 		var maxDate *time.Time
 		checkDB.QueryRow("SELECT COUNT(*), MAX(date) FROM features_store").Scan(&count, &maxDate)
 		if maxDate != nil && count > 0 {
-			detail := fmt.Sprintf("%d rows → %s", count, maxDate.Format("2006-01-02"))
-			if maxDate.Format("2006-01-02") >= tMinus1 {
+			maxDateStr := maxDate.Format("2006-01-02")
+			detail := fmt.Sprintf("%d rows → %s", count, maxDateStr)
+			if maxDateStr >= needDBDate {
 				items = append(items, item{"DuckDB", "✅", detail})
 			} else {
-				items = append(items, item{"DuckDB", "❌", detail + " (stale)"})
+				items = append(items, item{"DuckDB", "❌", fmt.Sprintf("%s (stale, need ≥ %s)", detail, needDBDate)})
 				allOK = false
 			}
 		} else {

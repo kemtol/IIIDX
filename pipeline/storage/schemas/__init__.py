@@ -11,6 +11,7 @@ from . import global_indices as _global_indices
 from . import master_broker as _master_broker
 from . import master_emiten as _master_emiten
 from . import yfinance_1h as _yfinance_1h
+from . import yfinance_4h as _yfinance_4h
 from . import yfinance_daily as _yfinance_daily
 from ._base import AUDIT_INSERTED, AUDIT_UPDATED, ColumnDef, TableSchema
 
@@ -20,6 +21,7 @@ SCHEMAS: dict[str, TableSchema] = {
     _master_emiten.SCHEMA.source: _master_emiten.SCHEMA,
     _master_broker.SCHEMA.source: _master_broker.SCHEMA,
     _yfinance_1h.SCHEMA.source: _yfinance_1h.SCHEMA,
+    _yfinance_4h.SCHEMA.source: _yfinance_4h.SCHEMA,
     _yfinance_daily.SCHEMA.source: _yfinance_daily.SCHEMA,
 }
 

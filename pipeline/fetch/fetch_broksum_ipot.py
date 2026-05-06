@@ -1118,7 +1118,7 @@ async def main():
     
     # Determine brokers to fetch
     if args.broker:
-        brokers = [args.broker.upper()]
+        brokers = [b.strip().upper() for b in args.broker.split(",") if b.strip()]
     elif args.brokers:
         brokers = [b.strip().upper() for b in args.brokers.split(",")]
     elif args.all_brokers:
@@ -1265,12 +1265,23 @@ async def main():
             for idx, broker in enumerate(brokers, start=1):
                 dates_requested_for_broker = broker_dates_map.get(broker, target_dates)
                 if args.resume_safe and use_local_first and args.source_mode in ("auto", "parquet"):
-                    # Recompute missing dates from the latest parquet state before each broker.
+                    # 1. Start with what's missing from parquet
                     dates_requested_for_broker = resolve_missing_dates_for_broker(
                         parquet_store,
                         broker,
                         target_dates,
                     )
+                    # 2. Subtract what's already in staging (crash-safe resume)
+                    if _stage is not None:
+                        staged_df = _stage.fetch_all()
+                        if not staged_df.empty and "broker" in staged_df.columns and "date" in staged_df.columns:
+                            staged_dates = set(staged_df[staged_df["broker"] == broker]["date"].unique())
+                            if staged_dates:
+                                before = len(dates_requested_for_broker)
+                                dates_requested_for_broker = [d for d in dates_requested_for_broker if d not in staged_dates]
+                                skipped = before - len(dates_requested_for_broker)
+                                if skipped > 0:
+                                    print(f"[Staging] {broker}: skip {skipped} already in staging duckdb")
                 if resume_state_enabled:
                     completed_dates = get_resume_completed_dates(resume_state_doc, broker)
                     if completed_dates:

@@ -44,6 +44,7 @@ LOCAL_TZ = "Asia/Jakarta"
 # until its schema lands; gateway falls through to legacy write for unknown sources.
 _SOURCE_BY_INTERVAL = {
     "1h": "yfinance_1h",
+    "4h": "yfinance_4h",
 }
 
 
@@ -80,14 +81,11 @@ def now_wib() -> datetime:
 
 def resolve_paths(args: argparse.Namespace) -> tuple[Path, Path]:
     service_dir = Path(__file__).resolve().parent
-    idx_dir = service_dir.parent
+    idx_dir = Path(__file__).resolve().parent.parent.parent
     default_data_dir = idx_dir / "data" / "Level_0_Raw"
-    if not default_data_dir.exists():
-        default_data_dir = idx_dir / "data"
-    if not default_data_dir.exists():
-        default_data_dir = Path(__file__).resolve().parents[2] / "machinelearning" / "data"
 
     data_dir = args.data_dir if args.data_dir else default_data_dir
+
     master_path = args.master_path if args.master_path else (data_dir / "master_emiten.parquet")
     return data_dir, master_path
 
