@@ -479,6 +479,36 @@ def build_feature_aggregate(
     df["broker"] = df["broker"].astype(str).str.upper().str.strip()
     df = df.dropna(subset=["date", "ticker", "broker"])
 
+    # T-1 safe broker shift (audit 2026-05-07): broksum is published EOD post-decision,
+    # so feature for date D must use broker activity from <= D-1. Shift raw broker columns
+    # in-place per (broker, ticker); all downstream aggregation (per-broker, retail,
+    # sum/mean) then operates on T-1 safe values automatically.
+    df = df.sort_values(["broker", "ticker", "date"])
+    _LEAKY_RAW = [
+        "flow_total_net_buy", "flow_abs_net_buy", "flow_gross_turnover",
+        "flow_buy_freq", "flow_sell_freq", "flow_net_flow_ratio",
+        "flow_churn_ratio", "flow_total_trades", "flow_net_buy_per_trade",
+        "ctx_broker_ticker_specificity", "ctx_broker_market_share",
+        "ctx_ticker_market_share", "ctx_broker_net_buy_rank",
+    ]
+    _grp = df.groupby(["broker", "ticker"], sort=False)
+    for _col in _LEAKY_RAW:
+        if _col in df.columns:
+            df[_col] = _grp[_col].shift(1)
+    # Recompute leaky z / velocity using the shifted (lag1) numerator vs the rolling
+    # baseline that L1 already computed from shift(1).
+    for _w in (5, 20, 60):
+        _z = f"tfl_net_buy_z_{_w}"
+        _v = f"tfl_net_buy_velocity_{_w}"
+        _ma = f"tfl_net_buy_ma_{_w}"
+        _std = f"tfl_net_buy_std_{_w}"
+        _lag = "tfl_net_buy_lag1"
+        if _lag in df.columns and _ma in df.columns:
+            if _z in df.columns and _std in df.columns:
+                df[_z] = ((df[_lag] - df[_ma]) / df[_std].replace(0, np.nan)).clip(-10, 10)
+            if _v in df.columns:
+                df[_v] = df[_lag] / df[_ma].replace(0, np.nan)
+
     # Base aggregate (all brokers)
     numeric_cols = _choose_numeric_feature_columns(df)
     agg_map: dict[str, list[str]] = {}

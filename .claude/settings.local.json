@@ -43,7 +43,13 @@
       "Bash(python3)",
       "Bash(ps -eo pid,etime,cmd --no-headers)",
       "Bash(../.venv/bin/python -m pytest pipeline/storage/tests/test_continuity.py -v)",
-      "Bash(../.venv/bin/python *)"
+      "Bash(../.venv/bin/python *)",
+      "Bash(git log *)",
+      "Bash(crontab -l)",
+      "Bash([[ -f \"$HOME/.bsjp_notify.env\" ]])",
+      "Bash(sed 's/=.*$/=***SET***/')",
+      "Bash(bash -n pipeline/run/run_pnl_recap_bsjp.sh)",
+      "Bash(xargs -I{} grep -l \"broker_aggregate\\\\|sq_present\\\\|xc_present\" {})"
     ]
   }
 }
