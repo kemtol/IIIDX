@@ -185,19 +185,21 @@ def test_build_recap_from_temp_duckdb_mixed_complete_pending_and_missing(tmp_pat
 
     msg = recap.format_recap_message(days, as_of=date(2026, 5, 5))
 
-    assert "BSJP 7D PnL RECAP [16:00 WIB]" in msg
+    assert "<b>BSJP 7D PnL RECAP</b>" in msg
+    assert f"Date: 2026-05-05 | {recap.DEFAULT_VARIANT}" in msg
     assert "<b>SUMMARY</b>" in msg
-    assert "Closed days: 5/7" in msg
-    assert "Pending days: 1" in msg
-    assert "Missing days: 1" in msg
-    assert "<b>DAILY PNL</b>" in msg
-    assert "2026-05-05  pending exit T+1 close10" in msg
-    assert "2026-04-29  missing picks_log" in msg
-    assert "<b>LAST CLOSED PICKS</b>" in msg
-    assert "#1 AAA entry=100 exit=105 gross=+5.00% net=+4.60%" in msg
-    assert "<b>DATA QUALITY</b>" in msg
+    assert "Win days:" in msg
+    assert "<b>LIVE PICKS — 2026-05-05 (pending T+1 close10)</b>" in msg
+    assert "<b>HISTORICAL PICKS</b>" in msg
+    assert "<pre>" in msg and "</pre>" in msg
+    # Tables contain expected tickers
+    assert "#1 AAA" in msg
+    assert "#2 BBB" in msg
+    # Box-drawing characters present
+    assert "┌" in msg and "└" in msg and "│" in msg
     assert "picks_log: OK" in msg
-    assert "not backfilled" in msg
+    assert "1 pending" in msg
+    assert "1 missing days" in msg
 
 
 def test_parse_go_predict_picks_marks_bootstrap_source():
@@ -239,7 +241,8 @@ def test_format_recap_labels_bootstrap_source():
     msg = recap.format_recap_message([day], as_of=exit_date, bootstrap_missing=True)
 
     assert "Source: picks_log + STARTER bootstrap for missing days (not saved)" in msg
-    assert "2026-05-04 [BOOTSTRAP]" in msg
-    assert "#1 AAA [BOOTSTRAP]" in msg
+    assert "<b>HISTORICAL PICKS [BOOTSTRAP]</b>" in msg
+    assert "2026-05-04" in msg
+    assert "#1 AAA" in msg
     assert "picks_log: MISSING" in msg
-    assert "starter bootstrap: 1 days from Go predict, not saved to picks_log" in msg
+    assert "1 bootstrap" in msg and "not saved to picks_log" in msg

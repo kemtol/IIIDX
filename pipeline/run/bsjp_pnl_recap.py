@@ -449,15 +449,58 @@ def _latest_closed_day(days: list[DayPnl]) -> DayPnl | None:
     return max(closed, key=lambda d: d.signal_date, default=None)
 
 
+def _pct_unicode(value: float | None) -> str:
+    return pct(value).replace("-", "−")
+
+
+def _price_compact(value: float | None) -> str:
+    if value is None or not math.isfinite(value):
+        return "?"
+    if abs(value - round(value)) < 1e-9:
+        return f"{value:.0f}"
+    return f"{value:g}"
+
+
+def _box_hline(widths: list[int], left: str, mid: str, right: str, h: str = "─") -> str:
+    return left + mid.join(h * w for w in widths) + right
+
+
+def _render_box_table(
+    headers: list[str],
+    widths: list[int],
+    aligns: list[str],
+    rows: list[tuple[str, ...]],
+) -> str:
+    lines = [_box_hline(widths, "┌", "┬", "┐")]
+    lines.append("│" + "│".join(h.center(w) for h, w in zip(headers, widths)) + "│")
+    lines.append(_box_hline(widths, "├", "┼", "┤"))
+    for i, row in enumerate(rows):
+        cells = []
+        for val, w, a in zip(row, widths, aligns):
+            inner = w - 2
+            text = str(val)
+            if a == "<":
+                cells.append(f" {text:<{inner}} ")
+            elif a == ">":
+                cells.append(f" {text:>{inner}} ")
+            else:
+                cells.append(text.center(w))
+        lines.append("│" + "│".join(cells) + "│")
+        if i < len(rows) - 1:
+            lines.append(_box_hline(widths, "├", "┼", "┤"))
+    lines.append(_box_hline(widths, "└", "┴", "┘"))
+    return "\n".join(lines)
+
+
 def format_recap_message(
     days: list[DayPnl],
     *,
     as_of: date,
+    variant: str = DEFAULT_VARIANT,
     cost: float = DEFAULT_COST,
     bootstrap_missing: bool = False,
     bootstrap_fetch_missing_features: bool = False,
 ) -> str:
-    ordered_desc = sorted(days, key=lambda d: d.signal_date, reverse=True)
     closed_days = [d for d in days if d.status == "closed"]
     pending_days = [d for d in days if d.status == "pending"]
     missing_days = [d for d in days if d.status == "missing"]
@@ -466,30 +509,14 @@ def format_recap_message(
     win_days = sum(1 for d in closed_days if d.net_return is not None and d.net_return > 0)
     best = _best_day(days)
     worst = _worst_day(days)
-    latest = _latest_closed_day(days)
-
-    expected_closed_picks = 0
-    covered_closed_picks = 0
-    for day in days:
-        if day.status == "missing":
-            continue
-        for pick in day.picks:
-            if pick.status == "closed":
-                expected_closed_picks += 1
-                covered_closed_picks += 1
-            elif pick.status == "missing" and pick.exit_date is not None:
-                expected_closed_picks += 1
-
-    picks_log_ok = any(
-        pick.pick.source == "picks_log" for day in days for pick in day.picks
-    )
+    picks_log_ok = any(p.pick.source == "picks_log" for d in days for p in d.picks)
     bootstrap_days = [
         day for day in days if day.picks and all(p.pick.source == "bootstrap" for p in day.picks)
     ]
-    lines = [
-        "<b>BSJP 7D PnL RECAP [16:00 WIB]</b>",
-        f"Date: {as_of.isoformat()}",
-        "Objective: Close10 T+1",
+
+    L = [
+        "<b>BSJP 7D PnL RECAP</b>",
+        f"Date: {as_of.isoformat()} | {variant}",
         (
             "Source: picks_log + STARTER bootstrap for missing days (not saved)"
             if bootstrap_missing
@@ -497,82 +524,81 @@ def format_recap_message(
         ),
         "",
         "<b>SUMMARY</b>",
-        f"Closed days: {len(closed_days)}/{len(days)}",
-        f"Pending days: {len(pending_days)}",
-        f"Missing days: {len(missing_days)}",
-        f"7D Net PnL: {pct(net_total)}",
-        f"7D Gross PnL: {pct(gross_total)}",
+        f"7D Net PnL: {_pct_unicode(net_total)}",
+        f"7D Gross PnL: {_pct_unicode(gross_total)}",
         f"Win days: {win_days}/{len(closed_days)}",
     ]
-    if best:
-        lines.append(f"Best day: {best.signal_date.isoformat()} {pct(best.net_return)}")
-    else:
-        lines.append("Best day: n/a")
-    if worst:
-        lines.append(f"Worst day: {worst.signal_date.isoformat()} {pct(worst.net_return)}")
-    else:
-        lines.append("Worst day: n/a")
-
-    lines.extend(["", "<b>DAILY PNL</b>"])
-    for day in ordered_desc:
-        if day.status == "closed":
-            icon = ICON_OK if (day.net_return or 0) >= 0 else ICON_BAD
-            source_note = " [BOOTSTRAP]" if day in bootstrap_days else ""
-            lines.append(
-                f"{icon} {day.signal_date.isoformat()}{source_note}  "
-                f"net={pct(day.net_return)} gross={pct(day.gross_return)} "
-                f"picks={day.closed_count}/{day.expected_count}"
-            )
-        elif day.status == "pending":
-            lines.append(f"{ICON_PENDING} {day.signal_date.isoformat()}  {day.reason}")
-        else:
-            lines.append(f"{ICON_WARN} {day.signal_date.isoformat()}  {day.reason}")
-
-    lines.extend(["", "<b>LAST CLOSED PICKS</b>"])
-    if latest is None:
-        lines.append("n/a")
-    else:
-        lines.append(latest.signal_date.isoformat())
-        for item in latest.picks:
-            if item.status != "closed":
-                continue
-            source_note = " [BOOTSTRAP]" if item.pick.source == "bootstrap" else ""
-            lines.append(
-                f"#{item.pick.rank} {item.pick.ticker}{source_note} "
-                f"entry={price(item.pick.entry_price)} exit={price(item.exit_price)} "
-                f"gross={pct(item.gross_return)} net={pct(item.net_return)}"
-            )
-
-    pending_note = "none"
-    if pending_days:
-        latest_pending = max(pending_days, key=lambda d: d.signal_date)
-        pending_note = f"{latest_pending.signal_date.isoformat()} waits for next trading day exit"
-    missing_pick_count = sum(1 for d in days for p in d.picks if p.status == "missing")
-    lines.extend(
-        [
-            "",
-            "<b>DATA QUALITY</b>",
-            f"{ICON_OK if picks_log_ok else ICON_WARN} picks_log: {'OK' if picks_log_ok else 'MISSING'}",
-            (
-                f"{ICON_OK if expected_closed_picks == covered_closed_picks else ICON_WARN} "
-                f"exit 10:xx coverage: {covered_closed_picks}/{expected_closed_picks} closed picks"
-            ),
-            f"{ICON_PENDING if pending_days else ICON_OK} pending: {pending_note}",
-        ]
+    L.append(
+        f"Best: {best.signal_date.isoformat()} {_pct_unicode(best.net_return)}"
+        if best else "Best: n/a"
     )
-    if missing_days or missing_pick_count:
-        lines.append(
-            f"{ICON_WARN} missing: {len(missing_days)} days, {missing_pick_count} picks "
-            "(not backfilled)"
-        )
-    if bootstrap_days:
-        fetch_note = " with feature fetch" if bootstrap_fetch_missing_features else ""
-        lines.append(
-            f"{ICON_WARN} starter bootstrap: {len(bootstrap_days)} days from Go predict{fetch_note}, not saved to picks_log"
-        )
-    lines.append(f"Cost: {cost * 100:.2f}% roundtrip")
+    L.append(
+        f"Worst: {worst.signal_date.isoformat()} {_pct_unicode(worst.net_return)}"
+        if worst else "Worst: n/a"
+    )
 
-    return "\n".join(lines)
+    live_rows: list[tuple[str, ...]] = []
+    pending_label = ""
+    for day in sorted(pending_days, key=lambda x: x.signal_date, reverse=True):
+        if not pending_label:
+            pending_label = day.signal_date.isoformat()
+        for it in day.picks:
+            live_rows.append((
+                f"#{it.pick.rank} {it.pick.ticker}",
+                _price_compact(it.pick.entry_price),
+            ))
+    if live_rows:
+        live_table = _render_box_table(
+            headers=["Pick", "Entry"],
+            widths=[9, 9],
+            aligns=["<", ">"],
+            rows=live_rows,
+        )
+        L.extend([
+            "",
+            f"<b>LIVE PICKS — {pending_label} (pending T+1 close10)</b>",
+            f"<pre>{live_table}</pre>",
+        ])
+
+    hist_rows: list[tuple[str, ...]] = []
+    for day in sorted(closed_days, key=lambda x: x.signal_date, reverse=True):
+        for it in day.picks:
+            if it.status != "closed":
+                continue
+            hist_rows.append((
+                day.signal_date.isoformat(),
+                f"#{it.pick.rank} {it.pick.ticker}",
+                f"{_price_compact(it.pick.entry_price)} → {_price_compact(it.exit_price)}",
+                _pct_unicode(it.net_return),
+            ))
+    title = "HISTORICAL PICKS [BOOTSTRAP]" if bootstrap_days else "HISTORICAL PICKS"
+    L.extend(["", f"<b>{title}</b>"])
+    if hist_rows:
+        hist_table = _render_box_table(
+            headers=["Date", "Pick", "Entry → Exit", "Net"],
+            widths=[12, 9, 14, 9],
+            aligns=["<", "<", "<", ">"],
+            rows=hist_rows,
+        )
+        L.append(f"<pre>{hist_table}</pre>")
+    else:
+        L.append("(no closed picks yet)")
+
+    notes = [f"picks_log: {'OK' if picks_log_ok else 'MISSING'}"]
+    if pending_days:
+        notes.append(f"{len(pending_days)} pending")
+    if missing_days:
+        notes.append(f"{len(missing_days)} missing days")
+    if bootstrap_days:
+        fetch_note = " w/ fetch" if bootstrap_fetch_missing_features else ""
+        notes.append(f"{len(bootstrap_days)} bootstrap{fetch_note} (not saved to picks_log)")
+    L.extend([
+        "",
+        " | ".join(notes),
+        f"Cost: {cost * 100:.2f}% roundtrip",
+    ])
+
+    return "\n".join(L)
 
 
 def send_recap(*, text: str, telegram: bool, discord: bool) -> None:
@@ -649,6 +675,7 @@ def main(argv: list[str] | None = None) -> int:
     message = format_recap_message(
         days,
         as_of=rendered_as_of,
+        variant=args.variant,
         cost=args.cost,
         bootstrap_missing=args.bootstrap_missing,
         bootstrap_fetch_missing_features=args.bootstrap_fetch_missing_features,

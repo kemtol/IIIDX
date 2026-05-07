@@ -363,6 +363,7 @@ def send_telegram_message(token: str, chat_id: str, text: str) -> None:
 
 def discord_text_from_html(text: str) -> str:
     text = html.unescape(text)
+    text = re.sub(r"<pre>(.*?)</pre>", r"```\n\1\n```", text, flags=re.DOTALL)
     text = re.sub(r"<b>(.*?)</b>", r"**\1**", text, flags=re.DOTALL)
     text = re.sub(r"<[^>]+>", "", text)
     return text.strip()

@@ -122,6 +122,13 @@ def test_discord_text_from_html_uses_markdown_bold():
     assert text == "**BSJP HEARTBEAT**\nT-1 & T intraday"
 
 
+def test_discord_text_from_html_converts_pre_to_code_block():
+    src = "<b>HEAD</b>\n<pre>┌──┐\n│OK│\n└──┘</pre>\nfooter"
+    out = hb.discord_text_from_html(src)
+
+    assert out == "**HEAD**\n```\n┌──┐\n│OK│\n└──┘\n```\nfooter"
+
+
 def test_load_notify_env_reads_export_file(tmp_path: Path, monkeypatch):
     env_path = tmp_path / ".bsjp_notify.env"
     env_path.write_text("export BSJP_DISCORD_WEBHOOK_URL='https://example.test/webhook'\n")
