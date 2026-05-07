@@ -17,6 +17,12 @@ func Bootstrap(db *sql.DB, l2Path string) (int64, error) {
 		return 0, fmt.Errorf("bootstrap create: %w", err)
 	}
 
+	// Add PK to allow UPSERT
+	_, err = db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_features_date_ticker ON features_store (date, ticker)")
+	if err != nil {
+		return 0, fmt.Errorf("bootstrap pk: %w", err)
+	}
+
 	// Ensure picks_log exists
 	db.Exec(`CREATE TABLE IF NOT EXISTS picks_log (
 		date DATE, variant VARCHAR, rank INTEGER, ticker VARCHAR,

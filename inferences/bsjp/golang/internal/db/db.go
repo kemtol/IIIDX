@@ -50,52 +50,57 @@ func (r *FeatureRow) SetPtr(col string, v *float64) {
 	r.Cols[col] = v
 }
 
-// UpsertDate upserts features for a single date. Only inserts columns present in the rows.
+// UpsertDate upserts features for a single date.
 func UpsertDate(db *sql.DB, date string, rows []FeatureRow) (int, error) {
 	if len(rows) == 0 {
 		return 0, nil
 	}
 
-	// Collect all column names from the first row
+	// DuckDB segmentation fault prevention:
+	// Use a single multi-row INSERT or smaller batches to minimize CGO roundtrips.
+
 	colNames := make([]string, 0, len(rows[0].Cols))
 	for c := range rows[0].Cols {
 		colNames = append(colNames, c)
 	}
-
-	tx, err := db.Begin()
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback()
-
 	colList := strings.Join(colNames, ", ")
-	placeholders := strings.Repeat("?,", len(colNames))
-	placeholders = placeholders[:len(placeholders)-1]
 
-	sql := fmt.Sprintf("INSERT OR REPLACE INTO features_store (date, ticker, %s) VALUES (?, ?, %s)", colList, placeholders)
-	stmt, err := tx.Prepare(sql)
-	if err != nil {
-		return 0, err
-	}
-	defer stmt.Close()
+	const batchSize = 100
+	for i := 0; i < len(rows); i += batchSize {
+		end := i + batchSize
+		if end > len(rows) {
+			end = len(rows)
+		}
 
-	for _, r := range rows {
-		args := make([]interface{}, 2+len(colNames))
-		args[0] = date
-		args[1] = r.Ticker
-		for i, c := range colNames {
-			args[2+i] = r.Cols[c]
+		batch := rows[i:end]
+		var valueStrings []string
+		for _, r := range batch {
+			vals := make([]string, 0, 2+len(colNames))
+			vals = append(vals, fmt.Sprintf("'%s'", date))
+			vals = append(vals, fmt.Sprintf("'%s'", strings.ReplaceAll(r.Ticker, "'", "''")))
+
+			for _, c := range colNames {
+				v := r.Cols[c]
+				if v == nil {
+					vals = append(vals, "NULL")
+				} else {
+					// Use %g to avoid excessive zeros and handle large/small numbers efficiently
+					vals = append(vals, fmt.Sprintf("%g", *v))
+				}
+			}
+			valueStrings = append(valueStrings, "("+strings.Join(vals, ", ")+")")
 		}
-		if _, err := stmt.Exec(args...); err != nil {
-			return 0, fmt.Errorf("insert %s: %w", r.Ticker, err)
+
+		sql := fmt.Sprintf("INSERT OR REPLACE INTO features_store (date, ticker, %s) VALUES %s", 
+			colList, strings.Join(valueStrings, ", "))
+
+		if _, err := db.Exec(sql); err != nil {
+			return i, fmt.Errorf("upsert batch %d-%d: %w", i, end, err)
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
+
 	return len(rows), nil
 }
-
 func GetLatestDate(db *sql.DB) (string, error) {
 	var latest *time.Time
 	err := db.QueryRow("SELECT MAX(date) FROM features_store").Scan(&latest)

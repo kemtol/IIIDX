@@ -29,7 +29,7 @@ type yfDailyBar struct {
 }
 
 // ComputeOvernight computes overnight history features from yfinance_daily.parquet.
-// Uses shift(1): all rolling windows use data up to T-1.
+// Matches Python logic: features at date T use shift(1) of daily returns/stats.
 func ComputeOvernight(yfDailyPath, targetDate string) ([]OvernightRow, error) {
 	rows, err := parquet.ReadFile[yfDailyBar](yfDailyPath)
 	if err != nil {
@@ -37,11 +37,13 @@ func ComputeOvernight(yfDailyPath, targetDate string) ([]OvernightRow, error) {
 	}
 
 	t, _ := time.Parse("2006-01-02", targetDate)
-	tMinus120 := t.AddDate(0, 0, -120)
+	// Warmup 120 days matches Python's --warmup-calendar-days
+	tWarmup := t.AddDate(0, 0, -120)
 
 	tickerDays := make(map[string][]yfDailyBar)
 	for _, r := range rows {
-		if r.Date.Before(tMinus120) || r.Date.After(t) {
+		// Include up to targetDate to allow shift(1) to provide T-1 data for T
+		if r.Date.Before(tWarmup) || r.Date.After(t) {
 			continue
 		}
 		tk := strings.TrimSuffix(r.Ticker, ".JK")
@@ -54,40 +56,32 @@ func ComputeOvernight(yfDailyPath, targetDate string) ([]OvernightRow, error) {
 	for ticker, days := range tickerDays {
 		sort.Slice(days, func(i, j int) bool { return days[i].Date.Before(days[j].Date) })
 
-		var ovs []ovDay
+		// Step 1: Compute daily stats (T vs T-1)
+		var stats []ovDay
 		for i := 1; i < len(days); i++ {
 			prev := days[i-1]
+			curr := days[i]
 			if prev.Close == 0 {
 				continue
 			}
-			ret := (days[i].Open - prev.Close) / prev.Close
-			if math.IsNaN(ret) || math.IsInf(ret, 0) {
-				ret = 0
-			}
-			ovs = append(ovs, ovDay{
-				date:         days[i].Date,
-				overnightRet: ret,
-				highVs:       (days[i].High - prev.Close) / prev.Close,
-				lowVs:        (days[i].Low - prev.Close) / prev.Close,
-				closeVs:      (days[i].Close - prev.Close) / prev.Close,
+			stats = append(stats, ovDay{
+				date:         curr.Date,
+				overnightRet: (curr.Open - prev.Close) / prev.Close,
+				highVs:       (curr.High - prev.Close) / prev.Close,
+				lowVs:        (curr.Low - prev.Close) / prev.Close,
+				closeVs:      (curr.Close - prev.Close) / prev.Close,
 			})
 		}
-		if len(ovs) == 0 {
-			continue
-		}
 
-		for _, day := range ovs {
-			ds := day.date.Format("2006-01-02")
-			if ds != targetDate {
+		// Step 2: Compute rolling features for targetDate
+		// Features for targetDate T use stats from i-1 and before (shift 1)
+		for i, s := range stats {
+			if s.date.Format("2006-01-02") != targetDate {
 				continue
 			}
 
-			var past []ovDay
-			for _, ov := range ovs {
-				if ov.date.Before(day.date) {
-					past = append(past, ov)
-				}
-			}
+			// past items are stats[0...i-1]
+			past := stats[:i]
 			if len(past) == 0 {
 				continue
 			}
@@ -104,13 +98,13 @@ func ComputeOvernight(yfDailyPath, targetDate string) ([]OvernightRow, error) {
 					continue
 				}
 
-				sum, pos, gd, gds := 0.0, 0, 0, 0
+				var sum, pos, gd, gds, up2, down2, up2Follow float64
 				mn := math.MaxFloat64
-				up2, down2, up2Follow := 0, 0, 0
 				vals := make([]float64, len(seg))
-				for i, ov := range seg {
+
+				for j, ov := range seg {
 					v := ov.overnightRet
-					vals[i] = v
+					vals[j] = v
 					sum += v
 					if v > 0 {
 						pos++
@@ -134,65 +128,55 @@ func ComputeOvernight(yfDailyPath, targetDate string) ([]OvernightRow, error) {
 						down2++
 					}
 				}
+
 				nv := float64(len(seg))
 				ma := sum / nv
-				posRate := float64(pos) / nv
+				posRate := pos / nv
+				
+				sort.Float64s(vals)
+				p10 := vals[max(0, int(float64(len(vals)-1)*0.10))]
 
-				sorted := make([]float64, len(seg))
-				copy(sorted, vals)
-				sort.Float64s(sorted)
-				p10 := sorted[max(0, int(float64(len(sorted)-1)*0.10))]
+				uFreq := up2 / nv
+				dFreq := down2 / nv
 
-				up2Rate := float64(up2) / nv
-				down2Rate := float64(down2) / nv
-
+				suffix := ""
 				switch w {
-				case 5:
-					cols["overnight_ret_ma5"] = f64(ma)
-					cols["overnight_positive_rate5"] = f64(posRate)
-					cols["gapdown_freq_5d"] = f64(float64(gd) / nv)
-					cols["gapdown_severe_freq_5d"] = f64(float64(gds) / nv)
-					cols["gap_up2_freq_5d"] = f64(up2Rate)
-					cols["gap_down2_freq_5d"] = f64(down2Rate)
-					cols["gap_up2_down2_edge_5d"] = f64(up2Rate - down2Rate)
-					cols["gap_up2_followthrough_freq_5d"] = f64(float64(up2Follow) / nv)
-					cols["overnight_worst_5d"] = f64(mn)
-					cols["overnight_p10_5d"] = f64(p10)
-				case 20:
-					cols["overnight_ret_ma20"] = f64(ma)
-					cols["overnight_positive_rate20"] = f64(posRate)
-					cols["gapdown_freq_20d"] = f64(float64(gd) / nv)
-					cols["gapdown_severe_freq_20d"] = f64(float64(gds) / nv)
-					cols["gap_up2_freq_20d"] = f64(up2Rate)
-					cols["gap_down2_freq_20d"] = f64(down2Rate)
-					cols["gap_up2_down2_edge_20d"] = f64(up2Rate - down2Rate)
-					cols["gap_up2_followthrough_freq_20d"] = f64(float64(up2Follow) / nv)
-					cols["overnight_worst_20d"] = f64(mn)
-					cols["overnight_p10_20d"] = f64(p10)
-				case 60:
-					cols["overnight_ret_ma60"] = f64(ma)
-					cols["overnight_positive_rate60"] = f64(posRate)
-					cols["gapdown_freq_60d"] = f64(float64(gd) / nv)
-					cols["gapdown_severe_freq_60d"] = f64(float64(gds) / nv)
-					cols["gap_up2_freq_60d"] = f64(up2Rate)
-					cols["gap_down2_freq_60d"] = f64(down2Rate)
-					cols["gap_up2_down2_edge_60d"] = f64(up2Rate - down2Rate)
-					cols["gap_up2_followthrough_freq_60d"] = f64(float64(up2Follow) / nv)
-					cols["overnight_worst_60d"] = f64(mn)
-					cols["overnight_p10_60d"] = f64(p10)
+				case 5: suffix = "_5d"
+				case 20: suffix = "_20d"
+				case 60: suffix = "_60d"
+				}
+
+				if w == 5 || w == 20 || w == 60 {
+					// Use specific names for ma and posRate to match Python's naming
+					if w == 5 {
+						cols["overnight_ret_ma5"] = ma
+						cols["overnight_positive_rate5"] = posRate
+					} else if w == 20 {
+						cols["overnight_ret_ma20"] = ma
+						cols["overnight_positive_rate20"] = posRate
+					} else {
+						cols["overnight_ret_ma60"] = ma
+						cols["overnight_positive_rate60"] = posRate
+					}
+					
+					cols["gapdown_freq"+suffix] = gd / nv
+					cols["gapdown_severe_freq"+suffix] = gds / nv
+					cols["gap_up2_freq"+suffix] = uFreq
+					cols["gap_down2_freq"+suffix] = dFreq
+					cols["gap_up2_down2_edge"+suffix] = uFreq - dFreq
+					cols["gap_up2_followthrough_freq"+suffix] = up2Follow / nv
+					cols["overnight_worst"+suffix] = mn
+					cols["overnight_p10"+suffix] = p10
 				}
 			}
 			if len(cols) > 0 {
-				result = append(result, OvernightRow{Date: ds, Ticker: ticker, Cols: cols})
+				result = append(result, OvernightRow{
+					Date:   targetDate,
+					Ticker: ticker,
+					Cols:   cols,
+				})
 			}
 		}
 	}
 	return result, nil
-}
-
-func f64(v float64) float64 {
-	if math.IsNaN(v) || math.IsInf(v, 0) {
-		return 0
-	}
-	return v
 }

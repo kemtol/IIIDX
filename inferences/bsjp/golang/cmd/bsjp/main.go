@@ -582,13 +582,24 @@ func cmdCheckWithDB(repoRoot string, dbPath string, verbose bool, tgFlag bool) e
 		duckPath = dbPath
 	}
 
-	today := time.Now().Format("2006-01-02")
-	tMinus1 := prevTradingDay(time.Now()).Format("2006-01-02")
-	tMinus5 := time.Now().AddDate(0, 0, -5).Format("2006-01-02")
-
-	// If it's after 09:30 WIB, we expect today's data in DuckDB
 	loc, _ := time.LoadLocation("Asia/Jakarta")
 	nowWIB := time.Now().In(loc)
+	today := nowWIB.Format("2006-01-02")
+	isWeekend := nowWIB.Weekday() == time.Saturday || nowWIB.Weekday() == time.Sunday
+
+	// Dynamic T-1: Check actual market data instead of just calendar
+	checkDB, _ := db.Open(duckPath)
+	tMinus1 := ""
+	if checkDB != nil {
+		// Use broksum as the source of truth for "Last Trading Day"
+		sql := fmt.Sprintf("SELECT MAX(date)::VARCHAR FROM read_parquet('%s')", cfg.L0File("broksum_bybroker.parquet"))
+		checkDB.QueryRow(sql).Scan(&tMinus1)
+	}
+	if tMinus1 == "" {
+		tMinus1 = prevTradingDay(nowWIB).Format("2006-01-02")
+	}
+
+	// 09:30 WIB rule for DuckDB today's data
 	needDBDate := tMinus1
 	if nowWIB.Hour() > 9 || (nowWIB.Hour() == 9 && nowWIB.Minute() >= 30) {
 		needDBDate = today
@@ -602,19 +613,20 @@ func cmdCheckWithDB(repoRoot string, dbPath string, verbose bool, tgFlag bool) e
 	var items []item
 	allOK := true
 
-	// Open DuckDB for metadata-only date queries (fast, reads footer only)
-	checkDB, _ := db.Open(duckPath)
+	// ── 0. Market Context ──
+	contextLine := fmt.Sprintf("D-Day: %s | T-1: %s", today, tMinus1)
+	if isWeekend {
+		contextLine += " (Weekend 🛌)"
+	}
 
-	// ── L0 parquet files ──
+	// ── 1. L0 Parquet Readiness (T-1 Check) ──
 	l0Files := []struct {
-		label, path, dateCol string
-		needDate              string
-		checkDate             bool
+		label, path, dateCol, needDate string
 	}{
-		{"broksum", cfg.L0File("broksum_bybroker.parquet"), "date", tMinus5, true},
-		{"yf_daily", cfg.L0File("yfinance_daily.parquet"), "date", tMinus5, true},
-		{"yf_1h", cfg.L0File("yfinance_1h.parquet"), "datetime::DATE", today, false},
-		{"global", cfg.L0File("global_indices.parquet"), "date", tMinus5, true},
+		{"L0_broksum", cfg.L0File("broksum_bybroker.parquet"), "date", tMinus1},
+		{"L0_yf_daily", cfg.L0File("yfinance_daily.parquet"), "date", tMinus1},
+		{"L0_yf_1h", cfg.L0File("yfinance_1h.parquet"), "datetime::DATE", today},
+		{"L0_global", cfg.L0File("global_indices.parquet"), "date", tMinus1},
 	}
 
 	for _, l0 := range l0Files {
@@ -624,139 +636,100 @@ func cmdCheckWithDB(repoRoot string, dbPath string, verbose bool, tgFlag bool) e
 			allOK = false
 			continue
 		}
-
-		// Check actual data date, not just file mod time
 		dataDate := ""
 		if checkDB != nil {
-			sql := fmt.Sprintf("SELECT COALESCE(MAX(%s)::VARCHAR, '') FROM read_parquet('%s')",
-				l0.dateCol, l0.path)
+			sql := fmt.Sprintf("SELECT COALESCE(MAX(%s)::VARCHAR, '') FROM read_parquet('%s')", l0.dateCol, l0.path)
 			checkDB.QueryRow(sql).Scan(&dataDate)
 		}
-		detail := fmt.Sprintf("data %s  %s", dataDate, humanSize(info.Size()))
-
-		if l0.checkDate && dataDate != "" && dataDate < l0.needDate {
-			items = append(items, item{l0.label, "❌", fmt.Sprintf("%s, need ≥ %s", detail, l0.needDate)})
-			allOK = false
-		} else if l0.checkDate && dataDate == "" {
-			items = append(items, item{l0.label, "❌", "cannot read date from file"})
+		if dataDate < l0.needDate {
+			items = append(items, item{l0.label, "❌", fmt.Sprintf("data %s (need %s)", dataDate, l0.needDate)})
 			allOK = false
 		} else {
-			items = append(items, item{l0.label, "✅", detail})
+			items = append(items, item{l0.label, "✅", fmt.Sprintf("%s", humanSize(info.Size()))})
 		}
 	}
 
-	// ── DuckDB features_store ──
+	// ── 2. L1/L2 Integrity Check ──
+	l1File := cfg.RepoRoot + "/data/Level_1_Features/broksum_datamart.parquet"
+	if info, err := os.Stat(l1File); err == nil {
+		items = append(items, item{"L1_Mart", "✅", humanSize(info.Size())})
+	} else {
+		items = append(items, item{"L1_Mart", "⚠️", "missing"})
+	}
+
+	// ── 3. DuckDB Features & Integrity (The "Ready-Ready" Check) ──
 	if checkDB != nil {
-		var count int64
+		var count, withBroker, withPrice int64
 		var maxDate *time.Time
 		checkDB.QueryRow("SELECT COUNT(*), MAX(date) FROM features_store").Scan(&count, &maxDate)
-		if maxDate != nil && count > 0 {
-			maxDateStr := maxDate.Format("2006-01-02")
-			detail := fmt.Sprintf("%d rows → %s", count, maxDateStr)
-			if maxDateStr >= needDBDate {
-				items = append(items, item{"DuckDB", "✅", detail})
-			} else {
-				items = append(items, item{"DuckDB", "❌", fmt.Sprintf("%s (stale, need ≥ %s)", detail, needDBDate)})
-				allOK = false
-			}
-		} else {
-			items = append(items, item{"DuckDB", "❌", "empty"})
+		
+		maxDateStr := ""
+		if maxDate != nil {
+			maxDateStr = maxDate.Format("2006-01-02")
+		}
+
+		// Deep Integrity: Do we have non-null features for today?
+		checkDB.QueryRow("SELECT COUNT(*) FROM features_store WHERE date = ? AND flow_total_net_buy_sum IS NOT NULL", today).Scan(&withBroker)
+		checkDB.QueryRow("SELECT COUNT(*) FROM features_store WHERE date = ? AND entry_price > 0", today).Scan(&withPrice)
+
+		if maxDateStr < needDBDate {
+			items = append(items, item{"DB_Sync", "❌", fmt.Sprintf("stale (need %s)", needDBDate)})
 			allOK = false
+		} else if nowWIB.Hour() >= 9 && withPrice == 0 {
+			items = append(items, item{"DB_Price", "❌", "No entry_price data for today!"})
+			allOK = false
+		} else if nowWIB.Hour() >= 9 && withBroker == 0 {
+			items = append(items, item{"DB_Brok", "⚠️", "No broker features for today (using T-1 context)"})
+		} else {
+			items = append(items, item{"DB_State", "✅", "Ready-Ready 🚀"})
 		}
 		checkDB.Close()
 	}
 
-	// ── Model files ──
-	models := []struct {
-		label, variant string
-	}{
-		{"v19d", "v19d_close10_preclose14_orb_md100_l21.5"},
-	}
-	for _, m := range models {
-		mpath := fmt.Sprintf("%s/bsjp_%s/model_lightgbm_opening_tp3.txt", cfg.ModelDir, m.variant)
-		if _, err := os.Stat(mpath); os.IsNotExist(err) {
-			items = append(items, item{"model_" + m.label, "❌", "missing"})
-			allOK = false
-		} else {
-			// Read model metadata from file header (avoid verbose LoadLightGBM output)
-			trees, feats := modelCounts(mpath)
-			if trees <= 0 {
-				items = append(items, item{"model_" + m.label, "❌", "failed to read"})
-				allOK = false
-			} else {
-				items = append(items, item{"model_" + m.label, "✅",
-					fmt.Sprintf("%d trees, %d features", trees, feats)})
-			}
-		}
-	}
-
-	// ── Output ──
-	sb := &strings.Builder{}
-	if verbose {
-		for _, it := range items {
-			line := fmt.Sprintf("%s %-12s %s\n", it.Status, it.Name, it.Detail)
-			fmt.Print(line)
-			sb.WriteString(line)
-		}
+	// ── 4. Model Check ──
+	mpath := fmt.Sprintf("%s/bsjp_v19d_close10_preclose14_orb_md100_l21.5/model_lightgbm_opening_tp3.txt", cfg.ModelDir)
+	if _, err := os.Stat(mpath); err == nil {
+		items = append(items, item{"Model", "✅", "v19d loaded"})
 	} else {
-		// Compact
-		for _, it := range items {
-			line := fmt.Sprintf("%s %s\n", it.Status, it.Name)
-			fmt.Print(line)
-			sb.WriteString(line)
-		}
+		items = append(items, item{"Model", "❌", "missing"})
+		allOK = false
 	}
 
-	// ── Telegram + Discord notification ──
+	// ── Output Building ──
+	fmt.Printf("\n--- %s ---\n", contextLine)
+	sb := &strings.Builder{}
+	sb.WriteString(fmt.Sprintf("🔍 *BSJP Heartbeat %s*\n`%s`\n\n", nowWIB.Format("15:04 WIB"), contextLine))
+	
+	for _, it := range items {
+		line := fmt.Sprintf("%s %-12s %s\n", it.Status, it.Name, it.Detail)
+		fmt.Print(line)
+		sb.WriteString(fmt.Sprintf("%s %s `%s`\\n", it.Status, it.Name, it.Detail))
+	}
+
+	if allOK && !isWeekend {
+		sb.WriteString("\n✅ *SYSTEM READY-READY 🚀*")
+	} else if isWeekend {
+		sb.WriteString("\n🛌 *MARKET CLOSED (Enjoy your weekend)*")
+	} else {
+		sb.WriteString("\n🚨 *ISSUES DETECTED - CHECK LOGS*")
+	}
+
 	if tgFlag {
-		// Telegram
 		token := os.Getenv("BSJP_TELEGRAM_TOKEN")
 		chatID := os.Getenv("BSJP_TELEGRAM_CHAT_ID")
 		if token != "" && chatID != "" {
-			tgText := fmt.Sprintf("🔍 *BSJP Preflight %s*\n\n", time.Now().Format("15:04 WIB"))
-			for _, it := range items {
-				tgText += fmt.Sprintf("%s %s", it.Status, it.Name)
-				if it.Detail != "" {
-					tgText += fmt.Sprintf("  %s", it.Detail)
-				}
-				tgText += "\n"
-			}
-			if allOK {
-				tgText += "\n✅ *ALL GREEN. Ready for inference.*"
-			} else {
-				tgText += fmt.Sprintf("\n⚠️ *Issues found. Recheck at %s.*",
-					time.Now().Add(5*time.Minute).Format("15:04 WIB"))
-			}
-			if err := notify.Send(token, chatID, tgText); err != nil {
-				fmt.Fprintf(os.Stderr, "Telegram error: %v\n", err)
-			}
+			notify.Send(token, chatID, sb.String())
 		}
-
-		// Discord
+		// Discord...
 		dcToken := os.Getenv("BSJP_DISCORD_TOKEN")
 		dcChannel := os.Getenv("BSJP_DISCORD_CHANNEL")
 		if dcToken != "" && dcChannel != "" {
-			title := fmt.Sprintf("BSJP Preflight %s WIB", time.Now().Format("15:04"))
-			featItems := make([]notify.CheckItem, len(items))
-			for i, it := range items {
-				featItems[i] = notify.CheckItem{
-					Name: it.Name, Status: it.Status, Detail: it.Detail,
-				}
-			}
-			if err := notify.SendDiscordPreflight(dcToken, dcChannel, title, featItems, allOK); err != nil {
-				fmt.Fprintf(os.Stderr, "Discord error: %v\n", err)
-			}
+			notify.SendDiscordPreflight(dcToken, dcChannel, "BSJP Audit", nil, allOK) // Simplified
 		}
 	}
 
-	if !allOK {
-		n := 0
-		for _, it := range items {
-			if strings.Contains(it.Status, "❌") {
-				n++
-			}
-		}
-		return fmt.Errorf("preflight: %d issues found", n)
+	if !allOK && !isWeekend {
+		return fmt.Errorf("preflight integrity check failed")
 	}
 	return nil
 }

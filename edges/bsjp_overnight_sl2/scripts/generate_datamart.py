@@ -144,8 +144,10 @@ def build_label(yf_1h: pd.DataFrame, exit_hour: int = EXIT_HOUR) -> pd.DataFrame
     df = yf_1h.copy()
     df["datetime"] = pd.to_datetime(df["datetime"])
     df["ticker"]   = df["ticker"].str.replace(r"\.JK$", "", regex=True)
-    df["date"]     = df["datetime"].dt.normalize().astype("datetime64[ns]")
-    df["hour"]     = df["datetime"].dt.hour
+    # Convert to Jakarta time for correct hour extraction
+    df["dt_wib"]   = df["datetime"].dt.tz_convert("Asia/Jakarta") if df["datetime"].dt.tz is not None else df["datetime"]
+    df["date"]     = df["dt_wib"].dt.normalize().dt.tz_localize(None).astype("datetime64[ns]")
+    df["hour"]     = df["dt_wib"].dt.hour
 
     # Entry price: close of 15:xx candle
     entry = (
@@ -169,7 +171,7 @@ def build_label(yf_1h: pd.DataFrame, exit_hour: int = EXIT_HOUR) -> pd.DataFrame
     exit_ = exit_.sort_values(["ticker", "exit_date"])
     exit_["trade_date"] = exit_.groupby("ticker")["exit_date"].shift(1)
     exit_ = exit_.dropna(subset=["trade_date"])
-    exit_["trade_date"] = exit_["trade_date"].astype("datetime64[ns]")
+    exit_["trade_date"] = exit_["trade_date"].dt.tz_localize(None).astype("datetime64[ns]")
 
     labels = entry.merge(exit_[["trade_date", "ticker", "exit_price", "exit_date"]], on=["trade_date", "ticker"], how="inner")
     labels = labels.dropna(subset=["entry_price", "exit_price"])
@@ -225,8 +227,10 @@ def build_universe_filter(
     df = yf_1h.copy()
     df["datetime"] = pd.to_datetime(df["datetime"])
     df["ticker"]   = df["ticker"].str.replace(r"\.JK$", "", regex=True)
-    df["date"]     = df["datetime"].dt.normalize().astype("datetime64[ns]")
-    df["hour"]     = df["datetime"].dt.hour
+    # Convert to Jakarta time for correct hour extraction
+    df["dt_wib"]   = df["datetime"].dt.tz_convert("Asia/Jakarta") if df["datetime"].dt.tz is not None else df["datetime"]
+    df["date"]     = df["dt_wib"].dt.normalize().dt.tz_localize(None).astype("datetime64[ns]")
+    df["hour"]     = df["dt_wib"].dt.hour
 
     close_15 = (
         df[df["hour"] == 15].groupby(["date", "ticker"])["close"].last()
@@ -267,8 +271,10 @@ def build_closing_momentum(yf_1h: pd.DataFrame) -> pd.DataFrame:
     df = yf_1h.copy()
     df["datetime"] = pd.to_datetime(df["datetime"])
     df["ticker"]   = df["ticker"].str.replace(r"\.JK$", "", regex=True)
-    df["date"]     = df["datetime"].dt.normalize().astype("datetime64[ns]")
-    df["hour"]     = df["datetime"].dt.hour
+    # Convert to Jakarta time for correct hour extraction
+    df["dt_wib"]   = df["datetime"].dt.tz_convert("Asia/Jakarta") if df["datetime"].dt.tz is not None else df["datetime"]
+    df["date"]     = df["dt_wib"].dt.normalize().dt.tz_localize(None).astype("datetime64[ns]")
+    df["hour"]     = df["dt_wib"].dt.hour
 
     open_price = (
         df[df["hour"] == 9].groupby(["date", "ticker"])["open"].first().reset_index()
@@ -321,8 +327,10 @@ def build_overnight_history(yf_1h: pd.DataFrame, windows: list[int] | None = Non
     df = yf_1h.copy()
     df["datetime"] = pd.to_datetime(df["datetime"])
     df["ticker"]   = df["ticker"].str.replace(r"\.JK$", "", regex=True)
-    df["date"]     = df["datetime"].dt.normalize().astype("datetime64[ns]")
-    df["hour"]     = df["datetime"].dt.hour
+    # Convert to Jakarta time for correct hour extraction
+    df["dt_wib"]   = df["datetime"].dt.tz_convert("Asia/Jakarta") if df["datetime"].dt.tz is not None else df["datetime"]
+    df["date"]     = df["dt_wib"].dt.normalize().dt.tz_localize(None).astype("datetime64[ns]")
+    df["hour"]     = df["dt_wib"].dt.hour
 
     close_15 = (
         df[df["hour"] == 15].groupby(["date", "ticker"])["close"].last().reset_index()
@@ -430,7 +438,7 @@ def build_cvd_features(features: pd.DataFrame, windows: list[int] | None = None)
         cols += ["flow_buy_volume", "flow_sell_volume"]
     df = features[cols].copy()
 
-    df["date"]            = pd.to_datetime(df["date"], errors="coerce").dt.normalize().astype("datetime64[ns]")
+    df["date"]            = pd.to_datetime(df["date"], errors="coerce").dt.normalize().dt.tz_localize(None).astype("datetime64[ns]")
     df["flow_net_volume"] = pd.to_numeric(df["flow_net_volume"], errors="coerce").fillna(0)
     if has_vol:
         df["flow_buy_volume"]  = pd.to_numeric(df["flow_buy_volume"],  errors="coerce").fillna(0)
@@ -480,7 +488,7 @@ def build_stockbit_features(broksum_raw: pd.DataFrame, broker_code: str = "XL") 
                                      "xl_buy_freq_ma5", "xl_sell_freq_ma5",
                                      "xl_buy_freq_ma20", "xl_freq_surge"])
 
-    df["date"]       = pd.to_datetime(df["date"]).astype("datetime64[ns]")
+    df["date"]       = pd.to_datetime(df["date"]).dt.tz_localize(None).astype("datetime64[ns]")
     df["buy_freq"]   = pd.to_numeric(df["buy_freq"],  errors="coerce").fillna(0)
     df["sell_freq"]  = pd.to_numeric(df["sell_freq"], errors="coerce").fillna(0)
     df["total_freq"] = df["buy_freq"] + df["sell_freq"]
@@ -529,20 +537,19 @@ def main() -> None:
 
     # Incremental mode: filter inputs to warmup window, only output rows >= date_from
     date_from_ts: pd.Timestamp | None = None
-    warmup_cutoff: pd.Timestamp | None = None
-    features_warmup_cutoff: pd.Timestamp | None = None
     if args.date_from:
         date_from_ts = pd.Timestamp(args.date_from)
-        warmup_cutoff = date_from_ts - pd.Timedelta(days=args.warmup_calendar_days)
-        features_warmup_cutoff = date_from_ts - pd.Timedelta(days=args.features_warmup_calendar_days)
-        print(
-            f"[IncrementalMode] date_from={args.date_from}, "
-            f"yf_warmup={warmup_cutoff.date()}, features_warmup={features_warmup_cutoff.date()}"
-        )
 
     yf_1h = pd.read_parquet(args.yf_1h_path)
-    if warmup_cutoff is not None:
+    features_warmup_cutoff: pd.Timestamp | None = None
+    if date_from_ts is not None:
+        warmup_cutoff = date_from_ts - pd.Timedelta(days=args.warmup_calendar_days)
+        if yf_1h["datetime"].dt.tz is not None:
+            warmup_cutoff = warmup_cutoff.tz_localize("UTC")
         yf_1h = yf_1h[yf_1h["datetime"] >= warmup_cutoff].copy()
+        print(f"[IncrementalMode] yf_warmup={warmup_cutoff.date()}")
+        
+        features_warmup_cutoff = date_from_ts - pd.Timedelta(days=args.features_warmup_calendar_days)
     print(f"[Load] yf_1h_rows={len(yf_1h):,}")
 
     # --- Label ---
@@ -615,7 +622,7 @@ def main() -> None:
         if features_warmup_cutoff is not None:
             read_filters = [("date", ">=", features_warmup_cutoff)]
         features = pd.read_parquet(args.features_path, filters=read_filters)
-        features["date"] = pd.to_datetime(features["date"]).dt.normalize().astype("datetime64[ns]")
+        features["date"] = pd.to_datetime(features["date"]).dt.normalize().dt.tz_localize(None).astype("datetime64[ns]")
         print(f"[Load] features_rows={len(features):,}")
 
         local_fund_brokers, bandar_brokers = load_master_broker(
@@ -648,7 +655,7 @@ def main() -> None:
     # --- Global indices (US close tersedia sore hari T — extra relevan untuk BSJP) ---
     global_indices = load_global_indices(args.global_indices_path)
     if not global_indices.empty:
-        global_indices["date"] = global_indices["date"].astype("datetime64[ns]")
+        global_indices["date"] = global_indices["date"].dt.tz_localize(None).astype("datetime64[ns]")
         train = train.merge(global_indices, on="date", how="left")
         gi_cols = [c for c in global_indices.columns if c != "date"]
         print(f"[GlobalIndex] merged {', '.join(gi_cols)}")

@@ -41,11 +41,22 @@ if [[ ! -x "$BSJP" ]]; then
 fi
 
 # 3. Step 1: Check Readiness (L0 and DB)
-# We run 'check' first to see what's broken.
-# Note: cmdCheck in Go returns error code 1 if any issues found.
 CHECK_OUTPUT=$("$BSJP" check --verbose 2>&1) || CHECK_FAILED=1
 if [[ -z "${CHECK_FAILED:-}" ]]; then
   CHECK_FAILED=0
+fi
+
+# Detect Weekend from output
+if echo "$CHECK_OUTPUT" | grep -q "Weekend"; then
+  log "🛌 Weekend detected. Heartbeat only, skipping repairs."
+  # Send Telegram and exit
+  if [[ -n "${BSJP_TELEGRAM_TOKEN:-}" && -n "${BSJP_TELEGRAM_CHAT_ID:-}" ]]; then
+    curl -s -X POST "https://api.telegram.org/bot$BSJP_TELEGRAM_TOKEN/sendMessage" \
+      -d "chat_id=$BSJP_TELEGRAM_CHAT_ID" \
+      -d "text=$(echo -e "🛌 *BSJP RELAXING* [$(date +%H:%M)]\nMarket is closed. See you Monday!")" \
+      -d "parse_mode=Markdown" > /dev/null 2>&1 || true
+  fi
+  exit 0
 fi
 
 # 4. Step 2: Smart Auto-Repair (Level 0)

@@ -184,8 +184,10 @@ def build_preclose14_features(yf_1h: pd.DataFrame) -> pd.DataFrame:
     df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
     df = df.dropna(subset=["datetime", "ticker"])
     df["ticker"] = df["ticker"].astype(str).str.replace(r"\.JK$", "", regex=True)
-    df["date"] = df["datetime"].dt.normalize().astype("datetime64[ns]")
-    df["hour"] = df["datetime"].dt.hour
+    # Convert to Jakarta time for correct hour extraction
+    df["dt_wib"] = df["datetime"].dt.tz_convert("Asia/Jakarta") if df["datetime"].dt.tz is not None else df["datetime"]
+    df["date"] = df["dt_wib"].dt.normalize().dt.tz_localize(None).astype("datetime64[ns]")
+    df["hour"] = df["dt_wib"].dt.hour
 
     for c in ["open", "high", "low", "close", "volume"]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
