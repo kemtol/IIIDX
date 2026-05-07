@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"database/sql"
 	"flag"
 	"fmt"
 	"math"
@@ -429,7 +430,7 @@ func cmdPredict(repoRoot string, args []string) error {
 		selectCols = append(selectCols, fmt.Sprintf(`"%s"`, c))
 	}
 
-	query := fmt.Sprintf("SELECT %s FROM features_store WHERE date = ?", strings.Join(selectCols, ", "))
+	query := fmt.Sprintf("SELECT %s FROM features_store WHERE date = ? AND entry_price > 0", strings.Join(selectCols, ", "))
 	rows, err := database.Query(query, targetDate)
 	if err != nil {
 		return err
@@ -480,7 +481,7 @@ func cmdPredict(repoRoot string, args []string) error {
 	}
 
 	if len(picks) == 0 {
-		return fmt.Errorf("no features for date %s. run fetch first", targetDate)
+		return fmt.Errorf("no executable features for date %s. run fetch first and ensure entry_price is populated", targetDate)
 	}
 
 	sort.Slice(picks, func(i, j int) bool {
@@ -587,17 +588,8 @@ func cmdCheckWithDB(repoRoot string, dbPath string, verbose bool, tgFlag bool) e
 	today := nowWIB.Format("2006-01-02")
 	isWeekend := nowWIB.Weekday() == time.Saturday || nowWIB.Weekday() == time.Sunday
 
-	// Dynamic T-1: Check actual market data instead of just calendar
 	checkDB, _ := db.Open(duckPath)
-	tMinus1 := ""
-	if checkDB != nil {
-		// Use broksum as the source of truth for "Last Trading Day"
-		sql := fmt.Sprintf("SELECT MAX(date)::VARCHAR FROM read_parquet('%s')", cfg.L0File("broksum_bybroker.parquet"))
-		checkDB.QueryRow(sql).Scan(&tMinus1)
-	}
-	if tMinus1 == "" {
-		tMinus1 = prevTradingDay(nowWIB).Format("2006-01-02")
-	}
+	tMinus1 := prevTradingDay(nowWIB).Format("2006-01-02")
 
 	// 09:30 WIB rule for DuckDB today's data
 	needDBDate := tMinus1
@@ -621,48 +613,51 @@ func cmdCheckWithDB(repoRoot string, dbPath string, verbose bool, tgFlag bool) e
 
 	// ── 1. L0 Parquet Readiness (T-1 Check) ──
 	l0Files := []struct {
-		label, path, dateCol, needDate string
+		label, path, dateExpr, needDate, entityLabel, entityCol string
 	}{
-		{"L0_broksum", cfg.L0File("broksum_bybroker.parquet"), "date", tMinus1},
-		{"L0_yf_daily", cfg.L0File("yfinance_daily.parquet"), "date", tMinus1},
-		{"L0_yf_1h", cfg.L0File("yfinance_1h.parquet"), "datetime::DATE", today},
-		{"L0_global", cfg.L0File("global_indices.parquet"), "date", tMinus1},
+		{"L0_broksum", cfg.L0File("broksum_bybroker.parquet"), "date", tMinus1, "tickers", "stock_code"},
+		{"L0_yf_daily", cfg.L0File("yfinance_daily.parquet"), "date", tMinus1, "tickers", "ticker"},
+		{"L0_yf_1h", cfg.L0File("yfinance_1h.parquet"), "datetime", today, "tickers", "ticker"},
+		{"L0_global", cfg.L0File("global_indices.parquet"), "date", tMinus1, "symbols", "symbol"},
 	}
 
 	for _, l0 := range l0Files {
-		info, err := os.Stat(l0.path)
-		if os.IsNotExist(err) {
+		if _, err := os.Stat(l0.path); os.IsNotExist(err) {
 			items = append(items, item{l0.label, "❌", "missing"})
 			allOK = false
 			continue
 		}
-		dataDate := ""
+		dataDate, rows, entities := "", int64(0), int64(0)
 		if checkDB != nil {
-			sql := fmt.Sprintf("SELECT COALESCE(MAX(%s)::VARCHAR, '') FROM read_parquet('%s')", l0.dateCol, l0.path)
-			checkDB.QueryRow(sql).Scan(&dataDate)
+			if l0.label == "L0_yf_1h" {
+				dataDate, rows, entities = yf1hLatestQuality(l0.path, loc)
+			} else {
+				dataDate, rows, entities = parquetLatestQuality(checkDB, l0.path, l0.dateExpr, l0.entityCol)
+			}
+		}
+		quality := freshnessQuality(dataDate, l0.needDate)
+		detail := fmt.Sprintf(
+			"latest=%s need=%s rows=%d %s=%d quality=%s",
+			emptyDash(dataDate), l0.needDate, rows, l0.entityLabel, entities, quality,
+		)
+		if l0.label == "L0_broksum" && checkDB != nil && dataDate != "" {
+			brokers := parquetDistinctOnDate(checkDB, l0.path, l0.dateExpr, "broker", dataDate)
+			detail = fmt.Sprintf("%s brokers=%d", detail, brokers)
 		}
 		if dataDate < l0.needDate {
-			items = append(items, item{l0.label, "❌", fmt.Sprintf("data %s (need %s)", dataDate, l0.needDate)})
+			items = append(items, item{l0.label, "❌", detail})
 			allOK = false
 		} else {
-			items = append(items, item{l0.label, "✅", fmt.Sprintf("%s", humanSize(info.Size()))})
+			items = append(items, item{l0.label, "✅", detail})
 		}
 	}
 
-	// ── 2. L1/L2 Integrity Check ──
-	l1File := cfg.RepoRoot + "/data/Level_1_Features/broksum_datamart.parquet"
-	if info, err := os.Stat(l1File); err == nil {
-		items = append(items, item{"L1_Mart", "✅", humanSize(info.Size())})
-	} else {
-		items = append(items, item{"L1_Mart", "⚠️", "missing"})
-	}
-
-	// ── 3. DuckDB Features & Integrity (The "Ready-Ready" Check) ──
+	// ── 2. DuckDB Features & Integrity (The "Ready-Ready" Check) ──
 	if checkDB != nil {
 		var count, withBroker, withPrice int64
 		var maxDate *time.Time
 		checkDB.QueryRow("SELECT COUNT(*), MAX(date) FROM features_store").Scan(&count, &maxDate)
-		
+
 		maxDateStr := ""
 		if maxDate != nil {
 			maxDateStr = maxDate.Format("2006-01-02")
@@ -672,24 +667,35 @@ func cmdCheckWithDB(repoRoot string, dbPath string, verbose bool, tgFlag bool) e
 		checkDB.QueryRow("SELECT COUNT(*) FROM features_store WHERE date = ? AND flow_total_net_buy_sum IS NOT NULL", today).Scan(&withBroker)
 		checkDB.QueryRow("SELECT COUNT(*) FROM features_store WHERE date = ? AND entry_price > 0", today).Scan(&withPrice)
 
+		dbQuality := freshnessQuality(maxDateStr, needDBDate)
+		if dbQuality == "OK" && nowWIB.Hour() >= 9 && withPrice == 0 {
+			dbQuality = "NO_ENTRY"
+		} else if dbQuality == "OK" && nowWIB.Hour() >= 9 && withBroker == 0 {
+			dbQuality = "NO_BROKER"
+		}
+		dbDetail := fmt.Sprintf(
+			"latest=%s need=%s rows_total=%d entry_rows=%d broker_rows=%d quality=%s",
+			emptyDash(maxDateStr), needDBDate, count, withPrice, withBroker, dbQuality,
+		)
 		if maxDateStr < needDBDate {
-			items = append(items, item{"DB_Sync", "❌", fmt.Sprintf("stale (need %s)", needDBDate)})
+			items = append(items, item{"DB_Sync", "❌", dbDetail})
 			allOK = false
 		} else if nowWIB.Hour() >= 9 && withPrice == 0 {
-			items = append(items, item{"DB_Price", "❌", "No entry_price data for today!"})
+			items = append(items, item{"DB_Price", "❌", dbDetail})
 			allOK = false
 		} else if nowWIB.Hour() >= 9 && withBroker == 0 {
-			items = append(items, item{"DB_Brok", "⚠️", "No broker features for today (using T-1 context)"})
+			items = append(items, item{"DB_Brok", "⚠️", dbDetail})
 		} else {
-			items = append(items, item{"DB_State", "✅", "Ready-Ready 🚀"})
+			items = append(items, item{"DB_State", "✅", dbDetail})
 		}
 		checkDB.Close()
 	}
 
-	// ── 4. Model Check ──
+	// ── 3. Model Check ──
 	mpath := fmt.Sprintf("%s/bsjp_v19d_close10_preclose14_orb_md100_l21.5/model_lightgbm_opening_tp3.txt", cfg.ModelDir)
 	if _, err := os.Stat(mpath); err == nil {
-		items = append(items, item{"Model", "✅", "v19d loaded"})
+		trees, feats := modelCounts(mpath)
+		items = append(items, item{"Model", "✅", fmt.Sprintf("v19d loaded trees=%d features=%d quality=OK", trees, feats)})
 	} else {
 		items = append(items, item{"Model", "❌", "missing"})
 		allOK = false
@@ -699,7 +705,7 @@ func cmdCheckWithDB(repoRoot string, dbPath string, verbose bool, tgFlag bool) e
 	fmt.Printf("\n--- %s ---\n", contextLine)
 	sb := &strings.Builder{}
 	sb.WriteString(fmt.Sprintf("🔍 *BSJP Heartbeat %s*\n`%s`\n\n", nowWIB.Format("15:04 WIB"), contextLine))
-	
+
 	for _, it := range items {
 		line := fmt.Sprintf("%s %-12s %s\n", it.Status, it.Name, it.Detail)
 		fmt.Print(line)
@@ -744,6 +750,87 @@ func humanSize(n int64) string {
 		i++
 	}
 	return fmt.Sprintf("%.1f%s", v, units[i])
+}
+
+func duckQuote(s string) string {
+	return strings.ReplaceAll(s, "'", "''")
+}
+
+func emptyDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
+}
+
+func freshnessQuality(latest, need string) string {
+	if latest == "" {
+		return "NO_DATA"
+	}
+	if latest < need {
+		return "STALE"
+	}
+	if latest > need {
+		return "AHEAD"
+	}
+	return "OK"
+}
+
+func parquetLatestQuality(database *sql.DB, path, dateExpr, entityCol string) (latest string, rows, entities int64) {
+	entityExpr := "''"
+	if entityCol != "" {
+		entityExpr = entityCol
+	}
+	query := fmt.Sprintf(`
+		WITH src AS (
+			SELECT CAST(%s AS DATE) AS d, CAST(%s AS VARCHAR) AS entity
+			FROM read_parquet('%s')
+		),
+		latest AS (
+			SELECT MAX(d) AS max_d FROM src
+		)
+		SELECT
+			COALESCE(max_d::VARCHAR, ''),
+			COUNT(*) FILTER (WHERE d = max_d),
+			COUNT(DISTINCT entity) FILTER (WHERE d = max_d)
+		FROM src, latest
+		GROUP BY max_d
+	`, dateExpr, entityExpr, duckQuote(path))
+	_ = database.QueryRow(query).Scan(&latest, &rows, &entities)
+	return latest, rows, entities
+}
+
+func parquetDistinctOnDate(database *sql.DB, path, dateExpr, entityCol, date string) int64 {
+	var n int64
+	query := fmt.Sprintf(`
+		SELECT COUNT(DISTINCT %s)
+		FROM read_parquet('%s')
+		WHERE CAST(%s AS DATE) = DATE '%s'
+	`, entityCol, duckQuote(path), dateExpr, date)
+	_ = database.QueryRow(query).Scan(&n)
+	return n
+}
+
+func yf1hLatestQuality(path string, loc *time.Location) (latest string, rows, tickers int64) {
+	bars, err := parquet.ReadFile[yfBar](path)
+	if err != nil || len(bars) == 0 {
+		return "", 0, 0
+	}
+	for _, b := range bars {
+		ds := b.Datetime.In(loc).Format("2006-01-02")
+		if ds > latest {
+			latest = ds
+		}
+	}
+	seen := make(map[string]struct{})
+	for _, b := range bars {
+		if b.Datetime.In(loc).Format("2006-01-02") != latest {
+			continue
+		}
+		rows++
+		seen[strings.TrimSuffix(b.Ticker, ".JK")] = struct{}{}
+	}
+	return latest, rows, int64(len(seen))
 }
 
 // prevTradingDay returns the most recent weekday before t (skips t itself).

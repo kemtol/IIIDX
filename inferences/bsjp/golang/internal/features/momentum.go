@@ -57,7 +57,7 @@ func ComputeMomentum(parquetPath, targetDate string) ([]MomentumRow, error) {
 	acc := make(map[string]*trio)
 
 	for _, b := range bars {
-		dateVal := b.Datetime.Format("2006-01-02")
+		dateVal, hour := jakartaDateHour(b.Datetime)
 		if targetDate != "" && dateVal != targetDate {
 			continue
 		}
@@ -68,7 +68,6 @@ func ComputeMomentum(parquetPath, targetDate string) ([]MomentumRow, error) {
 			t = &trio{dayHigh: math.Inf(-1), dayLow: math.Inf(1)}
 			acc[key] = t
 		}
-		hour := b.Datetime.Hour()
 		if hour == 9 && !t.ok9 {
 			t.open9 = b.Open
 			t.ok9 = true
@@ -119,6 +118,12 @@ func ComputeMomentum(parquetPath, targetDate string) ([]MomentumRow, error) {
 		return results[i].Ticker < results[j].Ticker
 	})
 	return results, nil
+}
+
+func jakartaDateHour(t time.Time) (string, int) {
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	wib := t.In(loc)
+	return wib.Format("2006-01-02"), wib.Hour()
 }
 
 func f64p(v float64) *float64 {

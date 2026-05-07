@@ -23,6 +23,7 @@ venv/
 
 # Runtime logs (regenerated)
 _LOG/
+_STATE/
 
 # Backups (large, local-only)
 _BAK/

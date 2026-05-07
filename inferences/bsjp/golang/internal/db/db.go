@@ -58,6 +58,9 @@ func UpsertDate(db *sql.DB, date string, rows []FeatureRow) (int, error) {
 
 	// DuckDB segmentation fault prevention:
 	// Use a single multi-row INSERT or smaller batches to minimize CGO roundtrips.
+	if _, err := db.Exec("DELETE FROM features_store WHERE date = ?", date); err != nil {
+		return 0, fmt.Errorf("delete existing rows for %s: %w", date, err)
+	}
 
 	colNames := make([]string, 0, len(rows[0].Cols))
 	for c := range rows[0].Cols {
@@ -91,7 +94,7 @@ func UpsertDate(db *sql.DB, date string, rows []FeatureRow) (int, error) {
 			valueStrings = append(valueStrings, "("+strings.Join(vals, ", ")+")")
 		}
 
-		sql := fmt.Sprintf("INSERT OR REPLACE INTO features_store (date, ticker, %s) VALUES %s", 
+		sql := fmt.Sprintf("INSERT OR REPLACE INTO features_store (date, ticker, %s) VALUES %s",
 			colList, strings.Join(valueStrings, ", "))
 
 		if _, err := db.Exec(sql); err != nil {
@@ -111,6 +114,12 @@ func GetLatestDate(db *sql.DB) (string, error) {
 }
 
 func LogPicks(db *sql.DB, picks []PickRow) error {
+	db.Exec(`CREATE TABLE IF NOT EXISTS picks_log (
+		date DATE, variant VARCHAR, rank INTEGER, ticker VARCHAR,
+		pred_proba DOUBLE, entry_price DOUBLE, exit_price DOUBLE,
+		overnight_return DOUBLE, hit_tp BOOLEAN, logged_at TIMESTAMP DEFAULT now(),
+		PRIMARY KEY (date, variant, rank))`)
+
 	stmt, err := db.Prepare(
 		"INSERT INTO picks_log (date, variant, rank, ticker, pred_proba, entry_price) " +
 			"VALUES (?, ?, ?, ?, ?, ?) " +
