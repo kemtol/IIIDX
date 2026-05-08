@@ -285,8 +285,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--buy-cost-bps", type=float, default=10.0)
     parser.add_argument("--sell-cost-bps", type=float, default=20.0)
     parser.add_argument("--slippage-bps-per-side", type=float, default=5.0)
-    parser.add_argument("--tp-pct", type=float, default=0.035, help="Take profit threshold, e.g., 0.035 for 3.5% (Aggressive Scalper)")
-    parser.add_argument("--sl-pct", type=float, default=-0.015, help="Stop loss threshold, e.g., -0.015 for -1.5% (Aggressive Scalper)")
+    parser.add_argument("--tp-pct", type=float, default=0.035, help="Take profit threshold, e.g., 0.035 for 3.5%% (Aggressive Scalper)")
+    parser.add_argument("--sl-pct", type=float, default=-0.015, help="Stop loss threshold, e.g., -0.015 for -1.5%% (Aggressive Scalper)")
 
     # Execution model
     parser.add_argument(

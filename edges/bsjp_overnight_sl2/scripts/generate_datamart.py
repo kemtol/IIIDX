@@ -37,6 +37,7 @@ from generate_datamart import (  # noqa: E402
     build_feature_aggregate,
     load_global_indices,
     load_master_broker,
+    normalize_ticker_series,
 )
 
 # ---------------------------------------------------------------------------
@@ -422,33 +423,51 @@ def build_cvd_features(features: pd.DataFrame, windows: list[int] | None = None)
     CVD = rolling sum of net_volume (buy_vol - sell_vol) across ALL brokers.
 
     Columns: cvd_{N}d, cvd_{N}d_norm (per window N)
-    Semua pakai shift(1) implisit karena L1 features sudah T-1 shifted.
+    T-1 safe: L1 broksum rows are same-day broker activity, so shift per
+    broker×ticker before any date×ticker aggregation.
     """
     if windows is None:
         windows = [5, 10, 20]
 
-    required = {"date", "ticker", "flow_net_volume"}
+    required = {"date", "ticker", "broker", "flow_net_volume"}
     empty_cols = ["date", "ticker"] + [f"cvd_{w}d" for w in windows] + [f"cvd_{w}d_norm" for w in windows]
     if features.empty or not required.issubset(features.columns):
         return pd.DataFrame(columns=empty_cols)
 
     has_vol = "flow_buy_volume" in features.columns and "flow_sell_volume" in features.columns
-    cols = ["date", "ticker", "flow_net_volume"]
+    cols = ["date", "ticker", "broker", "flow_net_volume"]
     if has_vol:
         cols += ["flow_buy_volume", "flow_sell_volume"]
     df = features[cols].copy()
 
     df["date"]            = pd.to_datetime(df["date"], errors="coerce").dt.normalize().dt.tz_localize(None).astype("datetime64[ns]")
+    df["ticker"]          = normalize_ticker_series(df["ticker"])
+    df["broker"]          = df["broker"].astype(str).str.upper().str.strip()
+    df = df.dropna(subset=["date", "ticker", "broker"]).sort_values(["broker", "ticker", "date"])
     df["flow_net_volume"] = pd.to_numeric(df["flow_net_volume"], errors="coerce").fillna(0)
     if has_vol:
         df["flow_buy_volume"]  = pd.to_numeric(df["flow_buy_volume"],  errors="coerce").fillna(0)
         df["flow_sell_volume"] = pd.to_numeric(df["flow_sell_volume"], errors="coerce").fillna(0)
 
-    agg = {"flow_net_volume": "sum"}
+    shift_cols = ["flow_net_volume"]
     if has_vol:
-        agg["flow_buy_volume"] = "sum"
-        agg["flow_sell_volume"] = "sum"
-    daily = df.groupby(["date", "ticker"]).agg(agg).reset_index()
+        shift_cols += ["flow_buy_volume", "flow_sell_volume"]
+    df[shift_cols] = df.groupby(["broker", "ticker"], sort=False)[shift_cols].shift(1)
+
+    grouped = df.groupby(["date", "ticker"], sort=False)
+    daily = (
+        grouped["flow_net_volume"]
+        .sum(min_count=1)
+        .rename("flow_net_volume")
+        .reset_index()
+    )
+    if has_vol:
+        shifted_volume = (
+            grouped[["flow_buy_volume", "flow_sell_volume"]]
+            .sum(min_count=1)
+            .reset_index()
+        )
+        daily = daily.merge(shifted_volume, on=["date", "ticker"], how="left")
     daily["total_volume"] = (daily["flow_buy_volume"] + daily["flow_sell_volume"]) if has_vol \
         else daily["flow_net_volume"].abs() * 2
 

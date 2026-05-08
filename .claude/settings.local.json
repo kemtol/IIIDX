@@ -49,7 +49,14 @@
       "Bash([[ -f \"$HOME/.bsjp_notify.env\" ]])",
       "Bash(sed 's/=.*$/=***SET***/')",
       "Bash(bash -n pipeline/run/run_pnl_recap_bsjp.sh)",
-      "Bash(xargs -I{} grep -l \"broker_aggregate\\\\|sq_present\\\\|xc_present\" {})"
+      "Bash(xargs -I{} grep -l \"broker_aggregate\\\\|sq_present\\\\|xc_present\" {})",
+      "Bash(go version *)",
+      "Bash(go build *)",
+      "Bash(go mod *)",
+      "Bash(go get *)",
+      "Bash(timeout 35 ./probe_trend --code DKHH --seconds 25)",
+      "Read(//tmp/**)",
+      "Bash(python3 -m json.tool)"
     ]
   }
 }
