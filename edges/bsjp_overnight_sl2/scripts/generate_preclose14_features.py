@@ -31,6 +31,7 @@ ROUNDTRIP_COST_FRAC = 0.004
 MORNING_HOURS = {9, 10, 11}
 PRECLOSE_HOURS = {9, 10, 11, 13, 14}
 PRE_14_AVG_HOURS = {9, 10, 11, 13}
+SESSION_HOURS = {9, 10, 11, 12, 13, 14, 15, 16}
 ARA_BUFFER_PCT = 0.005
 
 
@@ -69,6 +70,81 @@ def idx_ara_limit_pct(reference_price: float) -> float:
     if reference_price <= 5000:
         return 0.25
     return 0.20
+
+
+def normalize_yf_1h_session_time(raw: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normalize mixed yfinance_1h timestamp regimes into exchange-session time.
+
+    Historical L0 contains two encodings:
+    - correct UTC timestamps: WIB = UTC+7
+    - legacy promoted timestamps: session time is recovered with UTC+14
+
+    Pick the scheme per date×ticker by maximum available preclose-hour coverage.
+    Ties prefer the correct UTC+7 scheme.
+    """
+    df = raw.copy().reset_index(drop=True)
+    df["_row_id"] = np.arange(len(df), dtype=np.int64)
+    dt = pd.to_datetime(df["datetime"], errors="coerce")
+    if dt.dt.tz is not None:
+        utc_plus7 = dt.dt.tz_convert("Asia/Jakarta").dt.tz_localize(None)
+        legacy_plus14 = (dt + pd.Timedelta(hours=14)).dt.tz_localize(None)
+    else:
+        utc_plus7 = dt
+        legacy_plus14 = dt + pd.Timedelta(hours=14)
+
+    ticker = df["ticker"].astype(str).str.replace(r"\.JK$", "", regex=True)
+    candidates = []
+    for scheme_order, (scheme, local_dt) in enumerate(
+        [("utc_plus7", utc_plus7), ("legacy_plus14", legacy_plus14)]
+    ):
+        candidates.append(
+            pd.DataFrame(
+                {
+                    "_row_id": df["_row_id"],
+                    "ticker": ticker,
+                    "_time_scheme": scheme,
+                    "_scheme_order": scheme_order,
+                    "datetime": local_dt,
+                    "date": local_dt.dt.normalize().astype("datetime64[ns]"),
+                    "hour": local_dt.dt.hour.astype("int16"),
+                }
+            )
+        )
+    cand = pd.concat(candidates, ignore_index=True)
+    cand = cand.dropna(subset=["datetime", "date", "ticker"])
+
+    score = (
+        cand[cand["hour"].isin(PRECLOSE_HOURS)]
+        .drop_duplicates(["date", "ticker", "_time_scheme", "hour"])
+        .groupby(["date", "ticker", "_time_scheme", "_scheme_order"], sort=False)
+        .size()
+        .rename("_preclose_hour_count")
+        .reset_index()
+    )
+    if score.empty:
+        return df.iloc[0:0].drop(columns=["_row_id"], errors="ignore")
+    winners = (
+        score.sort_values(
+            ["date", "ticker", "_preclose_hour_count", "_scheme_order"],
+            ascending=[True, True, False, True],
+        )
+        .drop_duplicates(["date", "ticker"], keep="first")
+        [["date", "ticker", "_time_scheme"]]
+    )
+
+    selected = cand.merge(winners, on=["date", "ticker", "_time_scheme"], how="inner")
+    selected = selected[selected["hour"].isin(SESSION_HOURS)].copy()
+    selected = selected.sort_values(["date", "ticker", "hour", "datetime", "_row_id"])
+    selected = selected.drop_duplicates(["date", "ticker", "hour"], keep="last")
+
+    out = selected.merge(
+        df.drop(columns=["datetime", "ticker"], errors="ignore"),
+        on="_row_id",
+        how="left",
+        validate="many_to_one",
+    )
+    return out.drop(columns=["_row_id", "_scheme_order"], errors="ignore")
 
 
 def build_ara_state_features(bars: pd.DataFrame, prev_close: pd.DataFrame) -> pd.DataFrame:
@@ -180,14 +256,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_preclose14_features(yf_1h: pd.DataFrame) -> pd.DataFrame:
-    df = yf_1h.copy()
-    df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
+    df = normalize_yf_1h_session_time(yf_1h)
     df = df.dropna(subset=["datetime", "ticker"])
-    df["ticker"] = df["ticker"].astype(str).str.replace(r"\.JK$", "", regex=True)
-    # Convert to Jakarta time for correct hour extraction
-    df["dt_wib"] = df["datetime"].dt.tz_convert("Asia/Jakarta") if df["datetime"].dt.tz is not None else df["datetime"]
-    df["date"] = df["dt_wib"].dt.normalize().dt.tz_localize(None).astype("datetime64[ns]")
-    df["hour"] = df["dt_wib"].dt.hour
 
     for c in ["open", "high", "low", "close", "volume"]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
