@@ -13,6 +13,16 @@ MMMACHINE/idx — fully-automated stock screener for Indonesian IDX equities. Tw
 
 One active strategy: **BSJP** (Beli Sore Jual Pagi) — entry close 15:xx, exit open 09:xx T+1.
 
+Current BSJP research state (2026-05-09):
+
+- Current clean research candidate: `model/BSJP/v23b_t1audit2_clean/`.
+- Objective: `close10` — entry close 15:xx T, exit open 10:xx T+1.
+- Locked OOT artifact: 2025-11-17 -> 2026-04-23, AUC 0.5346, cum net +207.9%, MaxDD -24.2%, best iteration 5.
+- Current quick-win policy candidate: k=2 / max weight 25% / cost cap 3% / q=.85, locked OOT +255.0%, MaxDD -17.9%.
+- No-lookahead audit: `_LOG/v23b_t1audit2_clean_no_lookahead_audit_20260509.json`, hard failures all false.
+- Latest provisional calendar extension ends at 2026-05-06, not 2026-05-09. 2026-05-09 is Saturday and 2026-05-08 entry is not closed yet.
+- Treat v23 as research-only until rolling-retrain validation passes.
+
 ## Environment
 
 ```bash
@@ -50,7 +60,7 @@ bash pipeline/run/run_fetch_broksum.sh
 # Build features + training datamart
 bash pipeline/run/run_feature_l1.sh
 cd edges/bsjp_overnight_sl2/scripts
-python generate_datamart.py --strategy-mode bsjp
+python generate_datamart.py --exit-hour 10
 
 # Train (with feature modules — fast path)
 python train_lightgbm.py \
@@ -60,9 +70,8 @@ python train_lightgbm.py \
   --tp-pct 0.01 --sl-pct -0.02 \
   --oot-valid-days 100
 
-# Inference (daily production)
-python inferences/bsjp/python/fetch.py
-python inferences/bsjp/python/run.py --variant v15 --log-picks
+# Inference (daily production, Go path)
+bash pipeline/run/run_inference_bsjp.sh
 
 # Check logs
 tail -f _LOG/*.log

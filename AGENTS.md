@@ -56,7 +56,7 @@ pip install -r requirements.txt
 bash pipeline/run/run_fetch_broksum.sh      # ~30-60 min, resume-capable
 bash pipeline/run/run_feature_l1.sh
 cd edges/bsjp_overnight_sl2/scripts
-python generate_datamart.py --strategy-mode bsjp
+python generate_datamart.py --exit-hour 10
 python train_lightgbm.py \
   --output-dir ../../model/BSJP/bsjp_vN \
   --feature-modules-dir ../../data/Level_1_Features/modules \
@@ -95,7 +95,7 @@ cd inferences/bsjp/golang && go build -o bsjp ./cmd/bsjp/
 # Fetch 1h bars from Yahoo Finance (optional, cron handles L0):
 ./bsjp download --limit 100
 
-# Predict v19d + v20 ARA policy (auto-active):
+# Historical deployed research variant; do not use its backtest as v23 evidence:
 ./bsjp predict --variant v19d_close10_preclose14_orb_md100_l21.5 --log
 
 # Predict v15 (no ARA policy):
@@ -118,13 +118,31 @@ pytest pipeline/storage/tests/test_continuity.py -v   # merge gate, 4 tests
 
 ## Feature Modules (Preferred Fast Path)
 
-`--feature-modules-dir data/Level_1_Features/modules` loads precomputed feature parquets via LEFT JOIN (5-10s) instead of monolithic 3-min rebuild. Byte-identical feature set (252/252 verified). Add features by dropping `*_features.parquet` into `modules/`. 7 modules currently, 252 features total.
+`--feature-modules-dir data/Level_1_Features/modules` loads precomputed feature parquets via LEFT JOIN instead of monolithic rebuild. Add features by dropping `*_features.parquet` into `modules/`; do not delete feature columns for pruning, exclude them at train time.
+
+Current v23 research uses the expanded module set and 315 selected model features. Check `model/BSJP/v23b_t1audit2_clean/feature_importance.csv` and `metrics.json` before assuming old 252-feature behavior.
+
+## Current BSJP Research Handoff (2026-05-09)
+
+- **Current clean candidate:** `model/BSJP/v23b_t1audit2_clean/`.
+- **Objective:** BSJP `close10` — entry close 15:xx T, exit open 10:xx T+1.
+- **Status:** research-only. Do not treat this as production or inference-ready.
+- **Locked OOT artifact:** `valid_predictions.parquet`, 100 trading days, 2025-11-17 → 2026-04-23.
+- **Locked OOT metrics:** AUC 0.5346, cum net +207.9%, MaxDD -24.2%, best iteration 5, overfit gap 0.0616.
+- **No-lookahead audit:** `_LOG/v23b_t1audit2_clean_no_lookahead_audit_20260509.json`; hard failures all false.
+- **Current policy candidate:** k=2 / max weight 25% / cost cap 3% / adaptive q=.85. Locked OOT +255.0%, MaxDD -17.9%, active days 96.
+- **Conservative policy candidate:** k=2 / max weight 20% / q=.90. Locked OOT +184.7%, MaxDD -13.5%.
+- **Latest local closed-date extension:** provisional scoring to 2026-05-06. 2026-05-09 is Saturday; 2026-05-08 entry is not closed yet.
+- **Rp10m provisional calendar extension:** 7D +11.31%, 30D +22.48%, 90D +171.51%, all ending 2026-05-06.
+- **Caveat:** post-2026-04-23 extension is not locked OOT; broker aggregate/CVD modules currently end at 2026-04-23, so rows after that have missing broker-family values.
+
+Plain read: v23 is not a pure ARA hunter. Gain is mostly pre14 intraday (~67%) and macro prev-close (~27%); ARA-history is small (~2.6%). Remaining concern is robustness/overfit, not a confirmed leakage failure in the current audit scope.
 
 ## Model Version Warnings
 
 - **v15** — production inference variant (AUC 0.602, overnight, clean).
-- **v19d** — active ARA-continuation research baseline. Preclose14 ORB features, executable; fillability unresolved. Go inference working (5 trees, 306 features, 360 cols/ticker).
-- **v20** — ARA-state policy layer (`v20_clean`) auto-active when variant contains `v19d`/`v20`. Keeps `single_release` + `near_ara_not_touched_0_3pct`, vetoes rest. Implemented in Go predict path.
+- **v19d/v20** — historical ARA-continuation baseline/policy, but headline returns are inflated by confirmed same-day broker leakage and ARA fillability assumptions. Do not use as credibility benchmark.
+- **v23b_t1audit2_clean** — current clean research candidate after broker/CVD/yf_daily/ARA-history audits. Not production; needs rolling-retrain validation.
 - **v18 close10 rebuild** — historical reference only. Depends on close15/EOD features unavailable before 14:59 decision.
 - **Close10 v10/grid models** — **DATA LEAKAGE**: `close_ret_last1h` leaked as feature. INVALID; do not use.
 - **OLD `training_datamart_bsjp_overnight.parquet`** — misleading filename; labels are actually `bsjp_close10_sl2` (exit open@10). Do not call close10 artifacts `overnight`.
@@ -155,6 +173,8 @@ See `model/BSJP/LATEST.md` for full iteration history.
 
 ## Known Issues
 
+- v23 robustness is not proven yet: best iteration is 5 and rolling-retrain validation is still pending.
+- Post-2026-04-23 calendar extension has missing broker-family values because broker aggregate/CVD module coverage ends at 2026-04-23.
 - Cross-sectional features (`sq_`, `xc_`, `yp_`, `pd_`) have NOT been audited for lookahead safety.
 - `ipot_ohlcv_1h.parquet` has zero live consumers — PRD 0003 deferred; fetcher still runs but removed from inference cron.
 - Training scripts pre-27-Apr were lost; always version-lock with git.

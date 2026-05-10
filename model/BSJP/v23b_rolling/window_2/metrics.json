@@ -1,0 +1,239 @@
+{
+  "status": "PASS",
+  "northstar": {
+    "capital_idr": 10000000.0,
+    "strategy": "BSJP close10",
+    "entry_time": "15:xx",
+    "entry_rule": "buy near close on day T using hour-15 close as proxy",
+    "exit_time": "10:xx T+1",
+    "exit_rule": "sell next trading day using hour-10 open as proxy",
+    "target": "positive_net_expectancy_after_costs"
+  },
+  "data": {
+    "training_path": "/home/kemal/idx/data/Level_2_Datamart/training_datamart_bsjp_close10_rebuild_v18like.parquet",
+    "rows_total": 102792,
+    "trading_days_total": 690,
+    "date_min": "2023-03-07",
+    "date_max": "2026-02-18",
+    "pre_oot_days": 590,
+    "oot_days": 100
+  },
+  "hard_rules": {
+    "min_history_required_days": 120,
+    "min_history_observed_days": 690,
+    "no_random_split": true,
+    "no_lookahead_features": true
+  },
+  "features": {
+    "selected_count": 324,
+    "dropped_columns": [
+      "has_yf_4h_max",
+      "has_yf_daily_max",
+      "intensity_early_s1",
+      "intensity_ratio_s2_s1",
+      "intensity_s1_total",
+      "intensity_s2_until_14h",
+      "pre14_orb_source_hour",
+      "pre14_pm_close_vs_close11",
+      "vol_ratio_s2_s1",
+      "xl_buy_freq_ma20",
+      "xl_buy_freq_ma5",
+      "xl_freq_surge",
+      "xl_sell_freq_ma5"
+    ],
+    "feature_blacklist_preset": "none",
+    "feature_blacklist": [],
+    "blacklisted_columns_dropped": [],
+    "feature_prune_top_n": 0,
+    "feature_source": "disabled",
+    "ranked_candidates_count": 0,
+    "include_pre14_ara_state_features": false,
+    "policy_only_columns_unblocked": []
+  },
+  "walkforward": {
+    "folds": 4,
+    "fold_valid_days": 20,
+    "metrics": [
+      {
+        "fold": 1,
+        "train_days": 510,
+        "valid_days": 20,
+        "valid_rows": 2155,
+        "auc": 0.6560659186535764,
+        "aucpr": 0.5205060560080785,
+        "logloss": 0.6344617203069233,
+        "brier": 0.22194098452829591,
+        "precision_at_0.5": 0.6711409395973155,
+        "recall_at_0.5": 0.12903225806451613,
+        "f1_at_0.5": 0.21645021645021645,
+        "positive_rate": 0.35962877030162416
+      },
+      {
+        "fold": 2,
+        "train_days": 530,
+        "valid_days": 20,
+        "valid_rows": 2102,
+        "auc": 0.6792976281689667,
+        "aucpr": 0.48115464628230536,
+        "logloss": 0.614152816987971,
+        "brier": 0.21175605918301865,
+        "precision_at_0.5": 0.0,
+        "recall_at_0.5": 0.0,
+        "f1_at_0.5": 0.0,
+        "positive_rate": 0.31303520456707895
+      },
+      {
+        "fold": 3,
+        "train_days": 550,
+        "valid_days": 20,
+        "valid_rows": 2443,
+        "auc": 0.6938275943860136,
+        "aucpr": 0.5520341934722425,
+        "logloss": 0.611381442811474,
+        "brier": 0.2136989815319702,
+        "precision_at_0.5": 0.5135396518375241,
+        "recall_at_0.5": 0.5959595959595959,
+        "f1_at_0.5": 0.5516883116883117,
+        "positive_rate": 0.3647155137126484
+      },
+      {
+        "fold": 4,
+        "train_days": 570,
+        "valid_days": 20,
+        "valid_rows": 2148,
+        "auc": 0.6319918001924444,
+        "aucpr": 0.5152075481162326,
+        "logloss": 0.6493848199616062,
+        "brier": 0.22848279950513078,
+        "precision_at_0.5": 0.0,
+        "recall_at_0.5": 0.0,
+        "f1_at_0.5": 0.0,
+        "positive_rate": 0.37011173184357543
+      }
+    ],
+    "policy_selected": {
+      "mode": "threshold",
+      "p_cut": 0.035,
+      "max_positions": 3,
+      "max_weight_per_name": 0.34
+    },
+    "policy_cv_summary": {
+      "days": 80,
+      "trading_days": 80,
+      "mean_daily_net_return": 0.04858813423341514,
+      "mean_daily_gross_return": 0.05258793264453541,
+      "mean_effective_threshold": 0.47896324561680936,
+      "net_expectancy_per_trade": 0.04851965249714961,
+      "win_rate_days": 0.85,
+      "cumulative_net_return": 38.87399229284166,
+      "max_drawdown": -0.05575941187473188,
+      "volatility_daily": 0.055769747892449456
+    }
+  },
+  "model": {
+    "type": "lightgbm.LGBMClassifier",
+    "best_iteration": 21,
+    "params": {
+      "n_estimators": 4000,
+      "learning_rate": 0.02,
+      "num_leaves": 63,
+      "max_depth": 6,
+      "min_data_in_leaf": 100,
+      "feature_fraction": 0.6,
+      "bagging_fraction": 0.8,
+      "bagging_freq": 1,
+      "lambda_l1": 1.0,
+      "lambda_l2": 1.5,
+      "min_gain_to_split": 0.01,
+      "model_objective": "binary",
+      "scale_pos_weight": "auto",
+      "early_stopping_rounds": 200
+    }
+  },
+  "metrics": {
+    "train_core": {
+      "auc": 0.6685279039927061,
+      "aucpr": 0.5138424158375925,
+      "logloss": 0.6315744109063813,
+      "brier": 0.22006780972975967,
+      "precision_at_0.5": 0.975,
+      "recall_at_0.5": 0.0012770555682897278,
+      "f1_at_0.5": 0.0025507701363680956,
+      "positive_rate": 0.3435981098109811
+    },
+    "oot_valid": {
+      "auc": 0.6370838519407654,
+      "aucpr": 0.4900985359037454,
+      "logloss": 0.6393650774792563,
+      "brier": 0.22365061189142318,
+      "precision_at_0.5": 1.0,
+      "recall_at_0.5": 0.000242306760358614,
+      "f1_at_0.5": 0.00048449612403100775,
+      "positive_rate": 0.3508160489629378
+    },
+    "oot_daily_topk": {
+      "k=5": {
+        "precision_mean": 0.6699999999999998,
+        "hit_rate_any_tp": 0.99,
+        "days": 100,
+        "rows": 500
+      },
+      "k=10": {
+        "precision_mean": 0.5980000000000001,
+        "hit_rate_any_tp": 1.0,
+        "days": 100,
+        "rows": 1000
+      },
+      "k=20": {
+        "precision_mean": 0.5329999999999999,
+        "hit_rate_any_tp": 1.0,
+        "days": 100,
+        "rows": 2000
+      }
+    },
+    "overfit_gap": {
+      "auc_train_minus_oot": 0.031444052051940674,
+      "aucpr_train_minus_oot": 0.02374387993384708
+    },
+    "portfolio_oot": {
+      "days": 100,
+      "trading_days": 100,
+      "mean_daily_net_return": 0.06361312771717537,
+      "mean_daily_gross_return": 0.06761288186751298,
+      "mean_effective_threshold": 0.4201957388031682,
+      "net_expectancy_per_trade": 0.06317952388452051,
+      "win_rate_days": 0.82,
+      "cumulative_net_return": 372.1690476878014,
+      "max_drawdown": -0.0929595971903373,
+      "volatility_daily": 0.07567078204271756
+    }
+  },
+  "cost_assumptions": {
+    "buy_cost_bps": 10.0,
+    "sell_cost_bps": 20.0,
+    "slippage_bps_per_side": 5.0,
+    "total_cost_fraction_per_roundtrip": 0.004,
+    "execution_model": "limit",
+    "note": "'limit': fills at entry_price/exit_price with fixed broker cost. 'market': adds IDX tick-based bid-ask spread per pick (buy on ask, sell on bid)."
+  },
+  "execution": {
+    "conviction_top_k": 3,
+    "conviction_min_proba": 0.035,
+    "use_adaptive_threshold": true,
+    "adaptive_threshold_quantile": 0.85,
+    "tp_pct": 0.01,
+    "sl_pct": -0.02,
+    "mean_effective_threshold_oot": 0.4201957388031682,
+    "max_pre14_market_cost_est": 0.0,
+    "min_pre14_turnover_until14": 0.0,
+    "min_entry_price_filter": 0.0,
+    "exclude_pre14_ara_like": false
+  },
+  "artifacts": {
+    "model_path": "/home/kemal/idx/model/BSJP/v23b_rolling/window_2/model_lightgbm_opening_tp3.txt",
+    "feature_importance_path": "/home/kemal/idx/model/BSJP/v23b_rolling/window_2/feature_importance.csv",
+    "valid_predictions_path": "/home/kemal/idx/model/BSJP/v23b_rolling/window_2/valid_predictions.parquet",
+    "portfolio_daily_path": "/home/kemal/idx/model/BSJP/v23b_rolling/window_2/portfolio_daily.parquet",
+    "walkforward_metrics_path": "/home/kemal/idx/model/BSJP/v23b_rolling/window_2/walkforward_metrics.csv"
+  }
+}

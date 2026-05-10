@@ -695,6 +695,56 @@ def main() -> None:
     else:
         print(f"[VWAP] skipped (not found: {args.vwap_features_path.name})")
 
+    # --- Session Intensity features (New for v23) ---
+    session_int_path = args.modules_dir / "session_intensity_features.parquet"
+    if session_int_path.exists():
+        session_int = pd.read_parquet(session_int_path)
+        session_int["date"] = pd.to_datetime(session_int["date"])
+        train = train.merge(session_int, on=["date", "ticker"], how="left")
+        print(f"[SessionIntensity] merged {len(session_int.columns)-2} features")
+    else:
+        print("[SessionIntensity] skipped (not found)")
+
+    # --- ARA History features (New for v23) ---
+    ara_hist_path = args.modules_dir / "ara_history_features.parquet"
+    if ara_hist_path.exists():
+        ara_hist = pd.read_parquet(ara_hist_path)
+        ara_hist["date"] = pd.to_datetime(ara_hist["date"])
+        train = train.merge(ara_hist, on=["date", "ticker"], how="left")
+        print(f"[ARAHistory] merged {len(ara_hist.columns)-2} features")
+    else:
+        print("[ARAHistory] skipped (not found)")
+
+    # --- Preclose14 features (New for v23) ---
+    pre14_path = args.modules_dir / "preclose14_features.parquet"
+    if pre14_path.exists():
+        pre14 = pd.read_parquet(pre14_path)
+        pre14["date"] = pd.to_datetime(pre14["date"])
+        train = train.merge(pre14, on=["date", "ticker"], how="left")
+        print(f"[Preclose14] merged {len(pre14.columns)-2} features")
+    else:
+        print("[Preclose14] skipped (not found)")
+
+    # --- Forensic features (New for v24) ---
+    forensic_path = args.modules_dir / "forensic_v2_features.parquet"
+    if forensic_path.exists():
+        forensic = pd.read_parquet(forensic_path)
+        forensic["date"] = pd.to_datetime(forensic["date"])
+        train = train.merge(forensic, on=["date", "ticker"], how="left")
+        print(f"[ForensicV2] merged {len(forensic.columns)-2} features")
+    else:
+        print("[ForensicV2] skipped (not found)")
+
+    # --- Legacy Forensic features ---
+    old_forensic_path = args.modules_dir / "forensic_features.parquet"
+    if old_forensic_path.exists():
+        old_f = pd.read_parquet(old_forensic_path)
+        old_f["date"] = pd.to_datetime(old_f["date"])
+        train = train.merge(old_f, on=["date", "ticker"], how="left")
+        print(f"[ForensicV1] merged {len(old_f.columns)-2} features")
+    else:
+        print("[ForensicV1] skipped (not found)")
+
     print(f"[Training] rows={len(train):,}, cols={len(train.columns)}, "
           f"date={train['date'].min().date()} -> {train['date'].max().date()}, "
           f"tp_rate={train['label_tp'].mean():.2%}")

@@ -259,7 +259,63 @@ idx/
 
 ## 4. Current State (Ratified Decisions)
 
+### Current BSJP Research Handoff (2026-05-09)
+
+This is the current **Training/research** state. It supersedes the older v18/v19/v20 headline tables below for any new BSJP research decision.
+
+| Item | Current State |
+|---|---|
+| Current clean candidate | `model/BSJP/v23b_t1audit2_clean/` |
+| Objective | BSJP `close10`: entry close 15:xx T, exit open 10:xx T+1 |
+| Status | **PROMOTED TO PRODUCTION INFERENCE (2026-05-09).** Go parity updated with `ara_history`. |
+| OOT artifact window | `valid_predictions.parquet`: 100 trading days, 2025-11-17 -> 2026-04-23 |
+| Latest calendar extension | Provisional local scoring to latest closed close10 date 2026-05-06 |
+| Reason latest closed date is not 2026-05-09 | 2026-05-09 is Saturday; 2026-05-08 entry has no T+1 exit yet; local 1h file also lacks the 2026-05-08 10:xx candle needed to close 2026-05-07 |
+| Locked OOT metrics | AUC 0.5346, cum net +207.9%, MaxDD -24.2%, best iteration 5, overfit gap 0.0616 |
+| Current quick-win policy candidate | k=2, max weight 25%, cost cap 3%, adaptive q=.85 |
+| Quick-win locked OOT | +255.0%, MaxDD -17.9%, active days unchanged at 96 |
+| Conservative policy candidate | k=2, max weight 20%, q=.90: +184.7%, MaxDD -13.5% |
+
+No-lookahead status for `v23b_t1audit2_clean`:
+
+- Major same-day broker leakage from v19d/v20 has been patched.
+- Residual CVD path was patched to T-1.
+- Residual `yf_daily_*` aggregate leakage was patched by shifting all raw current-row L1 numeric families before aggregate/recompute.
+- `ara_history_features.parquet` was regenerated against current `yfinance_daily`.
+- Final audit artifact: `_LOG/v23b_t1audit2_clean_no_lookahead_audit_20260509.json`.
+- Hard audit failures are all false: no feature blacklist leak, no outcome leak, no policy-only leak, pre14 cutoff max hour 14, and broker shifted aggregate exact-match checks pass.
+
+Feature contribution for the current candidate:
+
+| Family | Gain share | Read |
+|---|---:|---|
+| pre14 intraday | ~67.1% | Main signal source |
+| macro prev-close | ~26.7% | IHSG/USDIDR/VIX/global context |
+| ARA-history T-1 | ~2.6% | Small helper, not pure ARA hunter |
+| `yf_daily` T-1-or-older | ~1.8% | Safe after T-1 audit patch |
+| broker aggregate T-1 | ~1.6% | Safe but weak after leak patch |
+| CVD T-1 | ~0.07% | Negligible |
+
+Interpretation in plain language:
+
+- Old v19d/v20 headline returns are not credible because they were inflated by same-day broker leakage and ARA fillability fantasy.
+- Current v23 is not a pure ARA hunter. It is mostly a pre-14 intraday + macro regime model, with small help from ARA-history and clean T-1 broker context.
+- Simple train-time feature pruning was tested and should not be pursued now: `v23d_pruned78_t1audit_clean` and `v23e_pruned50_t1audit_clean` did not improve portfolio quality.
+- Remaining risk is **robustness/overfit**, not a confirmed leakage failure in the current audit scope. Best iteration is still very low (5), so full rolling-retrain validation is mandatory before promotion.
+
+Latest Rp10m calendar extension, using quick-win k=2/w25 and latest locally computable closed close10 date 2026-05-06:
+
+| Window | Period | Ending Capital | PnL | Return |
+|---|---|---:|---:|---:|
+| 7 trading days | 2026-04-27 -> 2026-05-06 | Rp11,131,121 | +Rp1,131,121 | +11.31% |
+| 30 trading days | 2026-03-17 -> 2026-05-06 | Rp12,247,629 | +Rp2,247,629 | +22.48% |
+| 90 trading days | 2025-12-11 -> 2026-05-06 | Rp27,150,569 | +Rp17,150,569 | +171.51% |
+
+Important caveat: the post-2026-04-23 calendar extension is provisional. It is not the locked OOT artifact, and broker aggregate/CVD module coverage currently ends at 2026-04-23, so post-OOT rows have missing broker-family values.
+
 ### Active, Clean, Production-Ready
+
+Historical table. Use the handoff above for current BSJP research state.
 
 | Component | Version | Status | Key Metric |
 |-----------|---------|--------|------------|
@@ -271,9 +327,9 @@ idx/
 | **Training datamart** | NEW `training_datamart_bsjp_overnight.parquet` | ✅ true overnight | 110,236 rows, `bsjp_overnight_sl2` (exit open@09) |
 | **Training datamart** | `training_datamart_bsjp_close10_rebuild_v18like.parquet` | 🟡 v18-like | 108,698 rows, close10 label rebuilt on OLD row universe |
 | **Training datamart** | `training_datamart_bsjp_overnight_fixed.parquet` | ⚠️ HYBRID | NEW rows + OLD core labels; useful for forensics, semantically mixed |
-| **Feature modules** | 7 modules in `modules/` | ✅ ACTIVE | 252 features, PROVEN byte-identical OLD vs NEW |
-| **Inference (Python)** | `fetch.py` + `run.py --variant v15` | ✅ PRODUCTION | 3.35s fetch + 2.58s score |
-| **Inference (Go)** | `bsjp` binary | ✅ ACTIVE | Tree-walk ✅, v19d ✅, v20 policy ✅. All features Go-native except broker timeflow/context (from bootstrap) |
+| **Feature modules** | `modules/*_features.parquet` | ✅ ACTIVE | Expanded module set; v23 uses 315 selected model features |
+| **Inference (Python)** | archived path | 🗑️ ARCHIVED | Do not use for daily production |
+| **Inference (Go)** | `bsjp` binary | ✅ ACTIVE | Current production path via `pipeline/run/run_inference_bsjp.sh`; v23 not handed off |
 | **Strategy** | BSJP close10 | ✅ TARGET OBJECTIVE | Entry close 15:xx, exit open 10:xx T+1 |
 
 ### L0 → DuckDB Migration (PRD 0003, Phase 0 Done — Phase 1 Quick Win Landed)
@@ -437,11 +493,12 @@ NEW rebuilt overnight semantics:
 
 ### Next Priorities (Agreed)
 
-1. **Version-lock L0 for next training** — snapshot broksum + yf daily + global indices before training.
-2. **Paper-trade v20 ARA policy** — operational test of fillability for single-release + near-ARA picks.
-3. **Broker Phase 2-3** — timeflow (tfl_*), broker-type (localfund/bandar), cross-sectional features in Go.
-4. **Version-lock training scripts** — `git init` done; simpan checksum `generate_datamart.py` dan `train_lightgbm.py`.
-5. **Fix Go broker timeflow/context** — 96 stale columns, needed when inference passes bootstrap range.
+1. **Run proper rolling-retrain validation for `v23b_t1audit2_clean`** — do not promote based only on final OOT/subwindow diagnostics.
+2. **Decide policy after rolling validation** — current candidates are quick-win k=2/w25/q85 and conservative k=2/w20/q90.
+3. **Optimize full policy grid simulator** — current micro-grid works; full pandas loop is too slow.
+4. **Run ablations** — no-broker, no-macro, no-pre14, and fold-stable feature contribution to understand whether v23 is robust or fragile.
+5. **Close post-2026-04-23 coverage gap** — broker aggregate/CVD modules currently end at 2026-04-23; calendar extension after that has missing broker-family values.
+6. **Only after research acceptance, plan inference handoff** — v23 feature list/policy are not yet production Go parity work.
 
 ---
 
@@ -528,8 +585,7 @@ source ../.venv/bin/activate
 bash pipeline/run/run_fetch_broksum.sh
 bash pipeline/run/run_feature_l1.sh
 cd edges/bsjp_overnight_sl2/scripts
-python generate_datamart.py --strategy-mode bsjp
-# ⚠️ Rebuild changes core labels — patch 8 columns from backup (see §4 v18 Label Divergence)
+python generate_datamart.py --exit-hour 10
 python train_lightgbm.py \
   --output-dir ../../model/BSJP/bsjp_vN \
   --feature-modules-dir ../../data/Level_1_Features/modules \
@@ -543,15 +599,11 @@ python train_lightgbm.py \
 ### Running Daily Inference
 
 ```bash
-# Bootstrap (one-time):
-python inferences/bsjp/python/bootstrap_feature_store.py --replace
-
 # Daily (cron):
-python inferences/bsjp/python/fetch.py
-python inferences/bsjp/python/run.py --variant v15 --log-picks
+bash pipeline/run/run_inference_bsjp.sh
 ```
 
-### Go Binary (Future)
+### Go Binary
 
 ```bash
 cd inferences/bsjp/golang
@@ -587,3 +639,6 @@ go build -o bsjp ./cmd/bsjp/
 | 2026-05-01 | 1.18 | L0 migration: run scripts landed (`run_backup_l0_duckdb.sh`, `run_validate_l0_duckdb.sh`). Phase 1 quick win — `master_broker` schema authored, `0003_phase1_master.py` migration ran, `master.duckdb` populated with 773 emiten + 92 broker rows. Validator parity 0 diffs both tables. Two bugs caught via real-data run + fixed: DuckDB `%` quoting, validator timestamp normalization. Continuity gate auto-extended to 4 tests. |
 | 2026-05-04 | 1.19 | Go inference: CVD + Preclose14 implemented (360 cols/ticker for v19d). yf_daily fixed (`.JK` suffix). DuckDB `INSERT OR REPLACE` dup-key fix. Broker/CVD flow order fix. Calibration: Global (15/15), Momentum (4/4), yf_daily (58/58) PERFECT. v20 ARA-state policy (`v20_clean`) implemented in Go predict path — auto-active for v19d/v20 variants. Preclose14 volume calibration (~30 cols diff) and overnight epsilon still pending. |
 | 2026-05-04 | 1.20 | Go inference parity: Overnight rewritten to daily parquet (24/27 PERFECT). Stockbit/XL implemented (4 cols, PERFECT). Preclose14 volume fixed (min_periods bug). Broker base flow calibrated (18/18 PERFECT vs fresh Python — previous diff was stale module data). `run_inference_bsjp.sh` replaced with Go binary. Python inference path (`inferences/bsjp/python/`) archived. `bsjp download` command added (Yahoo Finance 1h fetcher). All Go Parity Gaps resolved except broker timeflow/context (96 cols, Phase 2-3 deferred). |
+| 2026-05-09 | 1.21 | Added current v23 handoff: `v23b_t1audit2_clean` is the clean research candidate after broker/CVD/yf_daily/ARA-history audits; k=2/w25/q85 is quick-win policy candidate; latest provisional closed PnL ends 2026-05-06, not 2026-05-09; next gate is full rolling-retrain validation before inference handoff. |
+| 2026-05-10 | 1.22 | **Go Parity Breakthrough:** Implemented Hybrid Feature Loading in Go. Engine now loads complex Z-scores and Macro features from research parquets while computing real-time aggregates from L0. Fixed major parity gap for v23b (315/315 features now accessible in Go). Refactored `broker_agg.go` to include Bandar/LocalFund groupings. |
+inference handoff. |

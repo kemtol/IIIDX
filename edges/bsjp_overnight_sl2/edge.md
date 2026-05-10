@@ -1,5 +1,40 @@
 # Edge: bsjp_overnight_sl2
 
+## Current Handoff (2026-05-09)
+
+This file contains long historical notes. For new work, start from this current state:
+
+| Item | Current State |
+|---|---|
+| Current clean research candidate | `model/BSJP/v23b_t1audit2_clean/` |
+| Objective | BSJP `close10`: entry close 15:xx T, exit open 10:xx T+1 |
+| Status | Research-only, not production/inference-ready |
+| Locked OOT artifact | 2025-11-17 -> 2026-04-23, 100 trading days |
+| Locked OOT metrics | AUC 0.5346, cum net +207.9%, MaxDD -24.2%, best iteration 5 |
+| Current policy candidate | k=2, max weight 25%, cost cap 3%, adaptive q=.85 |
+| Policy candidate OOT | +255.0%, MaxDD -17.9%, active days unchanged |
+| Conservative policy candidate | k=2, max weight 20%, q=.90: +184.7%, MaxDD -13.5% |
+| Latest locally computable closed date | 2026-05-06 |
+
+No-lookahead status:
+
+- v19d/v20 headline returns are now considered inflated because old training used same-day broker activity that production could not see.
+- Current v23 patches broker aggregate, CVD, and `yf_daily_*` aggregate leakage and regenerates ARA-history against current raw daily.
+- Final current audit: `_LOG/v23b_t1audit2_clean_no_lookahead_audit_20260509.json`.
+- Hard audit failures are all false: no blacklisted/outcome/policy-only feature leak, pre14 cutoff max hour 14, broker shifted exact checks pass.
+
+Strategy read:
+
+- v23 is **not pure ARA hunter**. Gain is mostly pre14 intraday (~67%) and macro prev-close (~27%); ARA-history T-1 contributes only ~2.6%.
+- Simple train-time pruning did not help (`v23d_pruned78_t1audit_clean`, `v23e_pruned50_t1audit_clean`).
+- Remaining work is robustness: full rolling-retrain validation, ablations, and better policy stress testing.
+
+Calendar/PnL caveat:
+
+- User asked to anchor last-N performance from 2026-05-09. Since 2026-05-09 is Saturday and 2026-05-08 entry is not closed, latest valid local close10 PnL ends on entry date 2026-05-06.
+- Provisional Rp10m extension with k=2/w25/q85: 7D +11.31%, 30D +22.48%, 90D +171.51%, all ending 2026-05-06.
+- This post-2026-04-23 extension is not locked OOT; broker aggregate/CVD module coverage currently ends at 2026-04-23.
+
 ## Penjelasan Sederhana
 
 Bayangkan kamu beli saham **sore hari sekitar jam 15:30**, lalu jual **besok pagi jam 09:05** pas market baru buka.

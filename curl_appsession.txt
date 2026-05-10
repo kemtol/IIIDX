@@ -1,0 +1,73 @@
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0* Host indopremier.com:443 was resolved.
+* IPv6: (none)
+* IPv4: 180.150.244.67, 180.150.246.67, 180.150.245.61
+*   Trying 180.150.244.67:443...
+* Connected to indopremier.com (180.150.244.67) port 443
+* ALPN: curl offers h2,http/1.1
+} [5 bytes data]
+* TLSv1.3 (OUT), TLS handshake, Client hello (1):
+} [512 bytes data]
+*  CAfile: /etc/ssl/certs/ca-certificates.crt
+*  CApath: /etc/ssl/certs
+{ [5 bytes data]
+* TLSv1.3 (IN), TLS handshake, Server hello (2):
+{ [122 bytes data]
+* TLSv1.3 (IN), TLS handshake, Encrypted Extensions (8):
+{ [25 bytes data]
+* TLSv1.3 (IN), TLS handshake, Certificate (11):
+{ [3078 bytes data]
+* TLSv1.3 (IN), TLS handshake, CERT verify (15):
+{ [264 bytes data]
+* TLSv1.3 (IN), TLS handshake, Finished (20):
+{ [52 bytes data]
+* TLSv1.3 (OUT), TLS change cipher, Change cipher spec (1):
+} [1 bytes data]
+* TLSv1.3 (OUT), TLS handshake, Finished (20):
+} [52 bytes data]
+* SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384 / X25519 / RSASSA-PSS
+* ALPN: server accepted http/1.1
+* Server certificate:
+*  subject: businessCategory=Private Organization; serialNumber=9120104731501; jurisdictionC=ID; jurisdictionST=Jakarta; jurisdictionL=Jakarta Selatan; C=ID; ST=Jakarta; L=Jakarta Selatan; O=PT Indo Premier Sekuritas; CN=www.indopremier.com
+*  start date: Apr  7 09:21:49 2026 GMT
+*  expire date: Oct 23 09:21:49 2026 GMT
+*  subjectAltName: host "indopremier.com" matched cert's "indopremier.com"
+*  issuer: C=BE; O=GlobalSign nv-sa; CN=GlobalSign GCC R3 EV TLS CA 2025
+*  SSL certificate verify ok.
+*   Certificate level 0: Public key type RSA (2048/112 Bits/secBits), signed using sha256WithRSAEncryption
+*   Certificate level 1: Public key type RSA (2048/112 Bits/secBits), signed using sha256WithRSAEncryption
+*   Certificate level 2: Public key type RSA (2048/112 Bits/secBits), signed using sha256WithRSAEncryption
+* using HTTP/1.x
+} [5 bytes data]
+> GET /ipc/appsession.js HTTP/1.1
+> Host: indopremier.com
+> User-Agent: curl/8.5.0
+> Accept: */*
+> 
+{ [5 bytes data]
+* TLSv1.3 (IN), TLS handshake, Newsession Ticket (4):
+{ [281 bytes data]
+* TLSv1.3 (IN), TLS handshake, Newsession Ticket (4):
+{ [265 bytes data]
+* old SSL session ID is stale, removing
+{ [5 bytes data]
+< HTTP/1.1 200 OK
+< Server: nginx
+< Date: Sat, 09 May 2026 01:00:20 GMT
+< Content-Type: text/javascript; charset=utf-8
+< Content-Length: 18
+< Connection: keep-alive
+< X-Powered-By: Express
+< Cache-control: private, no-cache, no-store, must-revalidate
+< Pragma: no-cache
+< ETag: W/"12-CjXDPRt9cOL3NF4bZ00z4jHYlUI"
+< Strict-Transport-Security: max-age=63072000; includeSubDomains
+< X-Frame-Options: SAMEORIGIN
+< X-Content-Type-Options: nosniff
+< X-XSS-Protection: 1; mode=block
+< 
+{ [18 bytes data]
+100    18  100    18    0     0    119      0 --:--:-- --:--:-- --:--:--   120
+* Connection #0 to host indopremier.com left intact
+var appsession='';

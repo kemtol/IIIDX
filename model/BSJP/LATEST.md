@@ -1059,3 +1059,340 @@ First run: 756 picks → 2 picks (KOBX, NIRO). Sparse, matching v20 research "48
 3. Broker calibration (~187 cols) — complex DuckDB SQL, need systematic comparison
 4. Stockbit/XL, VWAP — not implemented (~10 features)
 5. Live yfinance intraday fetcher — current `bsjp fetch` reads existing parquet files only
+
+---
+
+## 9. v23 Clean ARA-History Research Baseline (2026-05-09)
+
+After the broker same-day leakage audit, v19d/v20 headline returns are no longer trusted as proof of edge. P0 patched residual CVD lookahead, Step A added `ara_history_features.parquet`, and P0.5 rebuilt `preclose14_features.parquet` to full coverage.
+
+Step C trained three comparable clean runs on the v19d-like close10 core:
+
+| Model | Feature intent | Features | Best iter | WF AUC | OOT AUC | OOT cum net | MaxDD | Mean/day | Read |
+|---|---|---:|---:|---|---:|---:|---:|---:|---|
+| `v23a_ara_history_pre14state_fullcoverage_clean` | ARA-history + pre14 ARA-state as model features | 336 | 9 | 0.575/0.568/0.521/0.562 | 0.5433 | +107.9% | -30.4% | +0.84% | Better AUC, worse drawdown |
+| `v23b_ara_history_only_fullcoverage_clean` | ARA-history only; ARA-state remains policy/backtest-only | 314 | 5 | 0.603/0.560/0.545/0.538 | 0.5283 | +194.1% | -17.9% | +1.17% | Best first portfolio profile |
+| `v23c_no_ara_history_state_fullcoverage_clean` | No ARA-history, no ARA-state | 302 | 8 | 0.576/0.569/0.548/0.548 | 0.5273 | +115.7% | -26.2% | +0.85% | Clean full-coverage baseline still positive |
+
+Common setup: `training_datamart_bsjp_close10_rebuild_v18like.parquet`, `--feature-modules-dir data/Level_1_Features/modules`, preclose14 blacklist, market execution, `pre14_market_cost_est <= 0.030`, `entry_price >= 500`, k=3, max weight 25%, p_cut=0.035, OOT 100 days, `min_data_in_leaf=100`, `lambda_l1=0.5`, `lambda_l2=1.5`, `min_gain_to_split=0.05`.
+
+Interpretation:
+
+- v23 is a research baseline, not production.
+- `v23b` is the current best candidate to investigate next, but OOT AUC is weak and best iteration is only 5. Treat the +194% OOT as promising but fragile.
+- `v23a` shows that opening pre14 ARA-state to the model improves global OOT AUC, but does not improve the practical trading profile in this first run.
+- `v23c` staying positive means the improvement is not exclusively from ARA-history; full-coverage preclose14/regime features are also doing real work.
+- Next step should be robustness and risk diagnostics on v23b: worst-day review, bucket attribution, policy variants, no-broker ablation, then Monte Carlo only if those checks pass.
+
+### 9A. v23b Residual `yf_daily` Leak Audit
+
+Follow-up audit found that old `v23b_ara_history_only_fullcoverage_clean` still inherited same-day `yf_daily_*` values through `broker_aggregate_features.parquet`. This was smaller than the original broker leak but still invalid for a pre14 decision point because final daily high/low/close are not known before close.
+
+Confirmed before patch:
+
+- `yf_daily_open_mean`: 207,949 / 208,062 comparable rows matched same-day daily open
+- `yf_daily_high_mean`: 207,949 / 208,062 matched same-day daily high
+- `yf_daily_low_mean`: 207,949 / 208,062 matched same-day daily low
+- `yf_daily_close_mean`: 207,949 / 208,062 matched same-day daily close
+- `yf_daily_range_pct_mean`: 208,062 / 208,062 matched same-day daily range
+
+Patch:
+
+- `edges/bpjs_opening_tp3/scripts/generate_datamart.py::build_feature_aggregate()` now shifts current-row L1 numeric families per `(broker, ticker)` before date/ticker aggregation:
+  - `flow_`, `ctx_`, `tfl_`, `yf_daily_`, `yf_1h_`, `yf_4h_`, `pc_`, `has_yf_`
+- z/velocity are recomputed from shifted T-1 flow vs shifted historical baseline.
+- Regenerated `data/Level_1_Features/modules/broker_aggregate_features.parquet`.
+- Backup: `data/Level_1_Features/modules/broker_aggregate_features.parquet.pre_yfdaily_t1_fix.bak`
+
+Exact reproduction audit after patch:
+
+- `yf_daily_high_mean`: 204,220 / 204,220 match shifted L1 aggregate
+- `yf_daily_close_mean`: 204,220 / 204,220 match shifted L1 aggregate
+- `yf_daily_range_pct_mean`: 204,220 / 204,220 match shifted L1 aggregate
+- `flow_total_net_buy_mean`: 245,698 / 245,698 match shifted L1 aggregate
+- `ctx_broker_market_share_mean`: 245,698 / 245,698 match shifted L1 aggregate
+- `tfl_net_buy_z_20_mean`: 176,360 / 176,360 match shifted L1 aggregate
+
+Replacement clean candidate:
+
+| Model | OOT AUC | OOT cum net | MaxDD | Mean/day | Best iter | Overfit gap | Read |
+|---|---:|---:|---:|---:|---:|---:|---|
+| `v23b_t1audit_clean` | 0.5346 | +207.9% | -24.2% | +1.22% | 5 | 0.0616 | Clean against residual `yf_daily` leak; still overfit-risk candidate |
+
+Feature-family contribution in `v23b_t1audit_clean`:
+
+- pre14 intraday: 67.1% gain
+- macro prev-close: 26.7%
+- ARA-history T-1: 2.6%
+- `yf_daily` now T-1-or-older: 1.8%
+- broker aggregate T-1: 1.6%
+- CVD T-1: 0.07%
+
+Interpretation: old v23b should not be cited anymore. Use `v23b_t1audit_clean` as the current candidate. It survives the residual leak patch, but best iteration 5 and AUC overfit gap 0.0616 mean it remains research-only until robustness diagnostics pass.
+
+### 9B. Train-Time Pruning Check
+
+Feature pruning was tested as train-time exclusion only. No module files or columns were deleted.
+
+| Model | Features | Best iter | WF AUC | OOT AUC | OOT cum net | MaxDD | Mean/day | Overfit gap |
+|---|---:|---:|---|---:|---:|---:|---:|---:|
+| `v23b_t1audit_clean` | 315 | 5 | 0.586/0.554/0.539/0.546 | 0.5346 | +207.9% | -24.2% | +1.22% | 0.0616 |
+| `v23d_pruned78_t1audit_clean` | 78 | 13 | 0.574/0.571/0.554/0.560 | 0.5349 | +173.6% | -29.6% | +1.11% | 0.0702 |
+| `v23e_pruned50_t1audit_clean` | 50 | 7 | 0.569/0.572/0.546/0.550 | 0.5352 | +91.8% | -22.4% | +0.74% | 0.0666 |
+
+Artifacts:
+
+- `_LOG/v23b_t1audit_clean_nonzero78_features.txt`
+- `_LOG/v23_pruning_comparison_20260509.csv`
+
+Read: naive top-N pruning did not improve the model. AUC stayed similar, but portfolio quality worsened. Keep `v23b_t1audit_clean` as the current research candidate; next improvement should come from robustness diagnostics, bucket/policy controls, and fold-stable feature selection rather than simple one-run top-N pruning.
+
+### 9C. Full No-Lookahead Audit Gate
+
+Added a reproducible audit script:
+
+- `edges/bsjp_overnight_sl2/scripts/audit_v23_no_lookahead.py`
+
+This script is read-only and checks feature-set leakage, pre14 cutoff reconstruction, macro timing, broker-shift exactness, and ARA-history exact rebuild.
+
+During this audit, one small stale-data mismatch was found in `ara_history_features.parquet`:
+
+- `max_return_5d_tminus1`: 1 mismatch out of 1,848,026 comparable rows
+- Row: `BJBR`, 2026-04-22
+- module value: 0.011834
+- fresh raw rebuild value: 0.005952
+
+Cause: ARA-history module was stale vs current `yfinance_daily`. Regenerated:
+
+- `data/Level_1_Features/modules/ara_history_features.parquet`
+- New shape: 1,850,329 rows x 14 cols
+- Date range: 2011-06-03 -> 2026-05-08
+
+After regeneration, ARA-history exact rebuild audit passed:
+
+- `was_ara_tminus1`: 1,849,554 / 1,849,554
+- `ara_count_5d`: 1,849,554 / 1,849,554
+- `ara_count_20d`: 1,849,554 / 1,849,554
+- `days_since_last_ara`: 952,639 / 952,639
+- `last_ara_return`: 952,639 / 952,639
+- `max_return_5d_tminus1`: 1,848,779 / 1,848,779
+- `max_return_20d_tminus1`: 1,848,779 / 1,848,779
+
+Retrained the current clean candidate on the fully current modules:
+
+| Model | OOT AUC | OOT cum net | MaxDD | Mean/day | Best iter | Overfit gap |
+|---|---:|---:|---:|---:|---:|---:|
+| `v23b_t1audit2_clean` | 0.5346 | +207.9% | -24.2% | +1.22% | 5 | 0.0616 |
+
+Final audit artifact:
+
+- `_LOG/v23b_t1audit2_clean_no_lookahead_audit_20260509.json`
+
+Hard audit failures are all false:
+
+- `feature_blacklist_present`: false
+- `outcome_like_present`: false
+- `policy_only_unblocked`: false
+- `pre14_reconstruction_failed`: false
+- `pre14_selected_after_14`: false
+- `broker_shift_failed`: false
+
+Selected proof points:
+
+- pre14 selected max hour = 14
+- pre14 selected bars after 14 = 0
+- 822,887 rows after 14 existed in raw/session data but were not selected
+- `pre14_prev_close`: 471,400 / 471,400 match expected previous close
+- broker shifted exact matches:
+  - `yf_daily_high_mean`: 204,220 / 204,220
+  - `yf_daily_close_mean`: 204,220 / 204,220
+  - `yf_daily_range_pct_mean`: 204,220 / 204,220
+  - `flow_total_net_buy_mean`: 245,698 / 245,698
+  - `ctx_broker_market_share_mean`: 245,698 / 245,698
+  - `tfl_net_buy_z_20_mean`: 176,360 / 176,360
+
+Read: current candidate is now `v23b_t1audit2_clean`. No hard leakage/lookahead failure remains in the current audit scope. Remaining objections are robustness/overfit, not confirmed leakage.
+
+### 9D. Robustness Diagnostics: Worst Days + Policy Micro-Grid
+
+Added robustness scripts:
+
+- `edges/bsjp_overnight_sl2/scripts/_v23_policy_tools.py`
+- `edges/bsjp_overnight_sl2/scripts/analyze_worst_days_v23.py`
+- `edges/bsjp_overnight_sl2/scripts/stress_policy_grid_v23.py`
+
+Both diagnostics enforce a baseline reconstruction gate: simulated daily portfolio must match `model/BSJP/v23b_t1audit2_clean/portfolio_daily.parquet` exactly before any attribution or policy result is trusted.
+
+Worst-day attribution:
+
+- Artifacts:
+  - `_LOG/v23b_t1audit2_clean_worst_days_20260509.csv`
+  - `_LOG/v23b_t1audit2_clean_worst_day_pick_attribution_20260509.csv`
+  - `_LOG/v23b_t1audit2_clean_worst_day_bucket_summary_20260509.csv`
+  - `_LOG/v23b_t1audit2_clean_worst_day_price_summary_20260509.csv`
+  - `_LOG/v23b_t1audit2_clean_worst_day_summary_20260509.json`
+- Baseline match: max daily net-return diff 0.0; position mismatch days 0.
+- Worst/loss days selected: 24 days (`net_return <= -2%` union bottom 10).
+
+Worst-day weighted loss by bucket:
+
+| Bucket | Trades | Weighted net |
+|---|---:|---:|
+| `far_or_other` | 43 | -0.4284 |
+| `touched_repeated_release` | 15 | -0.2958 |
+| `touched_single_release` | 7 | -0.0996 |
+| `virgin_near_not_touched` | 1 | -0.0347 |
+| `momentum_near_3_8_not_touched` | 4 | -0.0341 |
+
+Worst-day weighted loss by price tier:
+
+| Price tier | Trades | Weighted net |
+|---|---:|---:|
+| `500_2000` | 46 | -0.5758 |
+| `2000_5000` | 18 | -0.2688 |
+| `gt5000` | 6 | -0.0480 |
+
+Policy micro-grid:
+
+- Full grid was too slow with the initial pandas simulator, so first-pass `--micro-grid` was used.
+- Artifact: `_LOG/v23b_t1audit2_clean_policy_stress_micro_grid_20260509.csv`
+- Baseline match: max daily net-return diff 0.0; position mismatch days 0.
+
+| Policy | Active days | OOT cum net | MaxDD | Worst 30D | Read |
+|---|---:|---:|---:|---:|---|
+| Baseline: k=3, max weight 25%, cost cap 3%, q=.85 | 96 | +207.9% | -24.2% | -10.1% | Current policy |
+| k=2, max weight 25%, cost cap 3%, q=.85 | 96 | +255.0% | -17.9% | +7.6% | Best first robust candidate |
+| k=2, max weight 20%, cost cap 3%, q=.90, tick p95 veto | 96 | +184.7% | -13.5% | +8.2% | Lower-DD candidate |
+| k=2, max weight 20%, cost cap 3%, q=.85 | 96 | +179.1% | -14.5% | +6.3% | Simple lower-risk candidate |
+
+Important negative result:
+
+- `exclude_pre14_ara_like=True` performed badly:
+  - baseline-like k=3 version: -42.4% cum, MaxDD -56.0%
+  - k=2/cost 2.5% version: -17.6% cum, MaxDD -36.6%
+- Therefore a blunt ARA-like hard veto should not be used as-is; it removes too much useful signal.
+
+Current robustness read: the first policy improvement candidate is **k=2 / max weight 25% / cost cap 3% / adaptive q=.85**. It improves OOT return and drawdown while keeping active days unchanged, but it still needs rolling OOT validation before replacing the baseline policy.
+
+### 9E. k=2 Quick-Win Validation
+
+Added:
+
+- `edges/bsjp_overnight_sl2/scripts/evaluate_policy_windows_v23.py`
+- policy args to `edges/bsjp_overnight_sl2/scripts/analyze_worst_days_v23.py`
+
+Rolling OOT subwindow artifacts:
+
+- `_LOG/v23b_t1audit2_clean_policy_daily_compare_20260509.csv`
+- `_LOG/v23b_t1audit2_clean_policy_summary_compare_20260509.csv`
+- `_LOG/v23b_t1audit2_clean_policy_rolling_windows_20260509.csv`
+- `_LOG/v23b_t1audit2_clean_policy_rolling_window_summary_20260509.csv`
+- `_LOG/v23b_t1audit2_clean_policy_rolling_report_20260509.json`
+
+Policy comparison:
+
+| Policy | Active days | Cum net | MaxDD | Vol daily | Net/trade |
+|---|---:|---:|---:|---:|---:|
+| baseline k=3/w25/q85 | 96 | +207.9% | -24.2% | 4.25% | 1.76% |
+| quickwin k=2/w25/q85 | 96 | +255.0% | -17.9% | 3.94% | 2.89% |
+| lowerDD k=2/w20/q90 | 96 | +184.7% | -13.5% | 3.14% | 3.01% |
+
+Rolling subwindow read:
+
+| Metric | baseline k=3 | k=2/w25 | k=2/w20/q90 |
+|---|---:|---:|---:|
+| 7D positive-rate | 73.4% | 84.0% | 85.1% |
+| Worst 20D | -15.8% | -3.5% | -1.5% |
+| Worst 30D | -10.1% | +5.9% | +6.1% |
+| Worst 60D | +30.6% | +56.3% | +46.5% |
+
+k=2/w25 worst-day attribution:
+
+- Artifacts:
+  - `_LOG/v23b_t1audit2_clean_quickwin_k2_w25_worst_days_20260509.csv`
+  - `_LOG/v23b_t1audit2_clean_quickwin_k2_w25_worst_day_pick_attribution_20260509.csv`
+  - `_LOG/v23b_t1audit2_clean_quickwin_k2_w25_worst_day_bucket_summary_20260509.csv`
+  - `_LOG/v23b_t1audit2_clean_quickwin_k2_w25_worst_day_price_summary_20260509.csv`
+  - `_LOG/v23b_t1audit2_clean_quickwin_k2_w25_worst_day_summary_20260509.json`
+- Worst/loss days: 19 vs baseline 24.
+- Worst total weighted net: -0.6786 vs baseline -0.8925.
+- Largest k=2 worst buckets:
+  - `touched_repeated_release`: 14 trades, weighted net -0.3038
+  - `far_or_other`: 14 trades, weighted net -0.2207
+  - `touched_single_release`: 6 trades, weighted net -0.1204
+- Largest k=2 worst price tier:
+  - `500_2000`: 26 trades, weighted net -0.5196
+
+Read: **k=2/w25/q85 is now the current quick-win policy candidate** for `v23b_t1audit2_clean`. It improves return, MaxDD, volatility, net/trade, worst 20D/30D/60D, and keeps active days unchanged. Conservative alternative is k=2/w20/q90. This is still final-OOT/subwindow validation, not yet a full rolling-retrain validation.
+
+### 9F. Calendar Anchor Correction: Latest Closed PnL Is Not 2026-05-09
+
+User corrected the reporting anchor: "last N trading days" should be anchored from the current calendar date, 2026-05-09, not from the locked v23 OOT artifact end date.
+
+Data coverage check:
+
+| Artifact | Max date | Read |
+|---|---:|---|
+| `model/BSJP/v23b_t1audit2_clean/valid_predictions.parquet` | 2026-04-23 | Locked 100D OOT artifact |
+| `data/Level_0_Raw/yfinance_daily.parquet` | 2026-05-08 | Raw daily is current through Friday |
+| `data/Level_0_Raw/yfinance_1h.parquet` | 2026-05-08 ~09:03 WIB | No 10:xx candle for 2026-05-08 yet |
+| `data/Level_1_Features/modules/preclose14_features.parquet` | 2026-05-07 | Preclose features available through 2026-05-07 |
+| Broker aggregate/CVD modules | 2026-04-23 | Broker-family module coverage gap after locked OOT |
+
+Therefore, the latest locally computable **closed close10 trade** is:
+
+- Entry date: 2026-05-06
+- Exit date: 2026-05-07 10:xx
+
+It is not valid to report closed PnL through 2026-05-09:
+
+- 2026-05-09 is Saturday.
+- Entry 2026-05-08 exits on Monday 2026-05-11, so it is not closed.
+- The local 1h file also lacks the 2026-05-08 10:xx candle needed to close a 2026-05-07 entry.
+
+Artifacts created for the provisional calendar extension:
+
+- `_LOG/v23_liveextend_close10_20260424_20260508.parquet`
+- `_LOG/v23b_t1audit2_clean_combined_predictions_to_20260506_dedup.parquet`
+- `_LOG/v23b_t1audit2_clean_k2w25_daily_to_20260506_dedup.csv`
+- `_LOG/v23b_t1audit2_clean_k2w25_trades_to_20260506_dedup.csv`
+- `_LOG/v23_restore_full_modules_close10_20260509.parquet`
+
+Important hygiene note: the incremental datamart generator wrote some module parquets in partial/incremental shape. A full-history restore run was executed afterward to avoid leaving `data/Level_1_Features/modules/` in that partial state.
+
+Latest local module coverage after restore:
+
+| Module | Date range |
+|---|---|
+| `ara_history_features.parquet` | 2011-06-03 -> 2026-05-08 |
+| `broker_aggregate_features.parquet` | 2024-10-01 -> 2026-04-23 |
+| `closing_momentum_features.parquet` | 2023-04-03 -> 2026-05-08 |
+| `cvd_features.parquet` | 2024-10-01 -> 2026-04-23 |
+| `global_indices_features.parquet` | 2021-05-06 -> 2026-05-07 |
+| `overnight_history_features.parquet` | 2024-11-05 -> 2026-05-07 |
+| `preclose14_features.parquet` | 2023-03-06 -> 2026-05-07 |
+| `session_intensity_features.parquet` | 2023-03-05 -> 2026-05-08 |
+| `stockbit_xl_features.parquet` | 2026-05-06 -> 2026-05-07 |
+| `vwap_features.parquet` | 2023-03-06 -> 2026-04-24 |
+
+Corrected Rp10m summaries using quick-win k=2/w25/q85, anchored to latest locally computable closed date 2026-05-06:
+
+| Window | Period | Ending capital | PnL | Return |
+|---|---|---:|---:|---:|
+| 7 trading days | 2026-04-27 -> 2026-05-06 | Rp11,131,121 | +Rp1,131,121 | +11.31% |
+| 30 trading days | 2026-03-17 -> 2026-05-06 | Rp12,247,629 | +Rp2,247,629 | +22.48% |
+| 90 trading days | 2025-12-11 -> 2026-05-06 | Rp27,150,569 | +Rp17,150,569 | +171.51% |
+
+Last 7 closed trading days:
+
+| Date | Picks | Daily net |
+|---|---|---:|
+| 2026-04-27 | IFSH, SMMT | +4.08% |
+| 2026-04-28 | KONI, ALKA | +3.18% |
+| 2026-04-29 | APIC, HBAT | +4.35% |
+| 2026-04-30 | GGRM, SONA | -0.87% |
+| 2026-05-04 | HERO, UDNG | +1.30% |
+| 2026-05-05 | UDNG, KONI | +1.38% |
+| 2026-05-06 | ABDA, GGRM | -2.42% |
+
+Read: this extension is useful for user-facing calendar intuition, but it is **not equivalent to locked OOT**. Treat all post-2026-04-23 performance as provisional until broker aggregate/CVD module coverage is brought forward and the extension is regenerated cleanly.

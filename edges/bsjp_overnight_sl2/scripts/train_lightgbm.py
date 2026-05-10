@@ -184,6 +184,12 @@ def parse_args() -> argparse.Namespace:
         default="binary",
         help="binary = LGBMClassifier, ranker = LGBMRanker (LambdaMART-style per-date ranking).",
     )
+    parser.add_argument(
+        "--max-date",
+        type=str,
+        default=None,
+        help="Maximum calendar date to include for training/evaluation (YYYY-MM-DD). Data after this date is strictly discarded.",
+    )
 
     # Hard gates
     parser.add_argument("--min-trading-days", type=int, default=120)
@@ -212,6 +218,14 @@ def parse_args() -> argparse.Namespace:
         help="Directory with feature module parquets (*_features.parquet). "
              "When set, reads only core columns from --training-path and LEFT JOINs modules on (date, ticker). "
              "Each module must have grain (date, ticker) or (date,) for market-level features.",
+    )
+    parser.add_argument(
+        "--include-pre14-ara-state-features",
+        action="store_true",
+        help=(
+            "Allow pre14 ARA-state/policy columns to be used as model features. "
+            "Default keeps historical behavior where these columns are available only for policy/backtest diagnostics."
+        ),
     )
 
     # Policy search grid
@@ -460,8 +474,13 @@ def daily_topk_metrics(df: pd.DataFrame, k_list: list[int]) -> dict[str, dict[st
     return out
 
 
-def choose_feature_columns(df: pd.DataFrame, ranked_candidates: list[str] | None = None) -> list[str]:
-    blocked = OUTCOME_COLS | ID_COLS | POLICY_ONLY_COLS
+def choose_feature_columns(
+    df: pd.DataFrame,
+    ranked_candidates: list[str] | None = None,
+    include_pre14_ara_state_features: bool = False,
+) -> list[str]:
+    policy_blocked = set() if include_pre14_ara_state_features else POLICY_ONLY_COLS
+    blocked = OUTCOME_COLS | ID_COLS | policy_blocked
     numeric_cols = [c for c in df.columns if c not in blocked and pd.api.types.is_numeric_dtype(df[c])]
 
     if ranked_candidates:
@@ -1042,6 +1061,11 @@ def main() -> None:
         fail_with_reason(args.output_dir, "INVALID_SL_PCT", {"sl_pct": args.sl_pct})
 
     df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+    if args.max_date:
+        max_dt = pd.to_datetime(args.max_date).normalize()
+        df = df[df["date"] <= max_dt].copy()
+        print(f"[Init] Filtered data up to max-date {args.max_date}. Rows remaining: {len(df)}")
+        
     df = df.dropna(subset=["date", "ticker", TARGET_COL]).copy()
     df[TARGET_COL] = pd.to_numeric(df[TARGET_COL], errors="coerce")
     df = df.dropna(subset=[TARGET_COL]).copy()
@@ -1072,7 +1096,11 @@ def main() -> None:
         path=args.feature_importance_path,
         top_n=args.feature_prune_top_n,
     )
-    feature_cols = choose_feature_columns(df, ranked_candidates=ranked_candidates)
+    feature_cols = choose_feature_columns(
+        df,
+        ranked_candidates=ranked_candidates,
+        include_pre14_ara_state_features=args.include_pre14_ara_state_features,
+    )
     if not feature_cols:
         fail_with_reason(args.output_dir, "NO_USABLE_FEATURE_COLUMNS")
 
@@ -1477,6 +1505,12 @@ def main() -> None:
             "feature_prune_top_n": int(args.feature_prune_top_n),
             "feature_source": feature_source,
             "ranked_candidates_count": int(len(ranked_candidates)),
+            "include_pre14_ara_state_features": bool(args.include_pre14_ara_state_features),
+            "policy_only_columns_unblocked": (
+                sorted([c for c in POLICY_ONLY_COLS if c in feature_cols])
+                if args.include_pre14_ara_state_features
+                else []
+            ),
         },
         "walkforward": {
             "folds": int(len(wf_splits)),

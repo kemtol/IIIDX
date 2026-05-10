@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"database/sql"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"math"
@@ -160,142 +161,32 @@ func cmdFetch(repoRoot string, args []string) error {
 	}
 	fmt.Printf("Computing features for %s...\n", targetDate)
 
-	// Compute momentum features
-	momRows, err := features.ComputeMomentum(yf1h, targetDate)
+	// ── Step 2: Seed & Load Modular Features (Hybrid Path) ──
+	// This seeds base ticker rows and fills historical/complex features from research parquets
+	nMod, err := features.UpsertModules(database, cfg.ModulesDir, targetDate)
 	if err != nil {
-		return err
+		return fmt.Errorf("upsert modules: %w", err)
 	}
+	fmt.Printf("  modular features: %d updates from research parquets\n", nMod)
 
-	// Compute overnight features (from daily OHLCV)
-	overnightRows, err := features.ComputeOvernight(cfg.L0File("yfinance_daily.parquet"), targetDate)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: overnight skipped: %v\n", err)
-		overnightRows = nil
-	}
-
-	// Compute global macro features (per-date, broadcast)
-	globalRow, err := features.ComputeGlobal(cfg.L0File("global_indices.parquet"), cfg.L0File("yfinance_1h.parquet"), targetDate)
-	if err != nil {
-		globalRow = nil
-	}
-
-	// Compute OHLCV derived features
-	yfRows, err := features.ComputeYfDaily(cfg.L0File("yfinance_daily.parquet"), targetDate)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: yf_daily skipped: %v\n", err)
-		yfRows = nil
-	}
-
-	// Compute preclose14 features (needs yfinance_1h intraday through hour 14)
-	p14Rows, err := features.ComputePreclose14(yf1h, targetDate)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: preclose14 skipped: %v\n", err)
-		p14Rows = nil
-	}
-
-	// Compute Stockbit/XL features (auto-load from broksum L0)
-	xlRows, err := features.ComputeStockbit(database, cfg.L0File("broksum_bybroker.parquet"), targetDate)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: stockbit skipped: %v\n", err)
-		xlRows = nil
-	}
-
-	// Index by ticker
-	overnightByTicker := indexOvernight(overnightRows)
-	yfByTicker := indexYf(yfRows)
-	p14ByTicker := indexPreclose14(p14Rows)
-	xlByTicker := indexXl(xlRows)
-
-	// Ensure preclose14 columns exist in features_store
-	if len(p14Rows) > 0 && len(p14Rows[0].Cols) > 0 {
-		for col := range p14Rows[0].Cols {
-			database.Exec(fmt.Sprintf(`ALTER TABLE features_store ADD COLUMN IF NOT EXISTS "%s" DOUBLE`, col))
-		}
-	}
-
-	// Merge into db rows
-	dbRows := make([]db.FeatureRow, 0, len(momRows))
-	for _, r := range momRows {
-		dr := db.NewFeatureRow(r.Ticker)
-		dr.SetPtr("entry_price", r.EntryPrice)
-		dr.SetPtr("close_ret_last1h", r.CloseRetLast1h)
-		dr.SetPtr("close_vs_open_day", r.CloseVsOpenDay)
-		dr.SetPtr("close_range_pct", r.CloseRangePct)
-
-		// Overnight features
-		if o, ok := overnightByTicker[r.Ticker]; ok {
-			setOvernightCols(&dr, o)
-		}
-
-		// OHLCV derived features
-		if y, ok := yfByTicker[r.Ticker]; ok {
-			setYfCols(&dr, y)
-		}
-
-		// Preclose14 features
-		if p, ok := p14ByTicker[r.Ticker]; ok {
-			setPreclose14Cols(&dr, p)
-		}
-
-		// Stockbit/XL features
-		if x, ok := xlByTicker[r.Ticker]; ok {
-			setXlCols(&dr, x)
-		}
-
-		// Global features (broadcast to all tickers)
-		if globalRow != nil {
-			setGlobalCols(&dr, globalRow)
-		}
-
-		dbRows = append(dbRows, dr)
-	}
-
-	// Deduplicate by ticker
-	seen := make(map[string]int)
-	deduped := make([]db.FeatureRow, 0, len(dbRows))
-	for _, dr := range dbRows {
-		if idx, ok := seen[dr.Ticker]; ok {
-			// Merge cols from duplicate into first occurrence
-			for k, v := range dr.Cols {
-				if v != nil && deduped[idx].Cols[k] == nil {
-					deduped[idx].Cols[k] = v
-				}
-			}
-		} else {
-			seen[dr.Ticker] = len(deduped)
-			deduped = append(deduped, dr)
-		}
-	}
-	dbRows = deduped
-
-	n, err := db.UpsertDate(database, targetDate, dbRows)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("Done: %d tickers upserted for %s\n", n, targetDate)
-
-	// Compute broker and CVD features (UPDATE after INSERT, needs base rows to exist)
+	// ── Step 3: Real-time Features (L0 Path) ──
+	// We override/fill the most recent data directly from L0 parquets
 	bksPath := cfg.L0File("broksum_bybroker.parquet")
 	mbPath := cfg.L0File("master_broker.parquet")
 
-	// Find most recent broker date < targetDate (handles weekends/holidays automatically)
+	// Find most recent broker date < targetDate (T-1 safety)
 	brokerDate := targetDate
 	var maxDateStr string
 	sql := fmt.Sprintf("SELECT COALESCE(MAX(date)::VARCHAR, '') FROM read_parquet('%s') WHERE date < '%s'", bksPath, targetDate)
 	database.QueryRow(sql).Scan(&maxDateStr)
 	if maxDateStr != "" {
 		brokerDate = maxDateStr
-	} else {
-		// Fallback: yesterday's calendar date
-		if d, err := time.Parse("2006-01-02", targetDate); err == nil {
-			brokerDate = d.AddDate(0, 0, -1).Format("2006-01-02")
-		}
 	}
-	fmt.Fprintf(os.Stderr, "  broker date: %s (target: %s)\n", brokerDate, targetDate)
+	fmt.Printf("  broker date: %s (target: %s)\n", brokerDate, targetDate)
 
 	_, err = features.ComputeBrokerAggregate(database, bksPath, mbPath, brokerDate, targetDate)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: broker (T-1): %v\n", err)
+		fmt.Fprintf(os.Stderr, "Warning: broker (T-1) skipped: %v\n", err)
 	}
 	_, err = features.ComputeCVD(database, bksPath, brokerDate, targetDate)
 	if err != nil {
@@ -368,6 +259,7 @@ func cmdPredict(repoRoot string, args []string) error {
 	logPicks := f.Bool("log", false, "Log to picks_log")
 	date := f.String("date", "", "Target date")
 	dbPath := f.String("db", "", "Path to DuckDB (default: config)")
+	dumpTicker := f.String("dump-ticker", "", "Dump feature vector for this ticker")
 	f.Parse(args)
 
 	cfg, err := loadConfig(repoRoot)
@@ -382,6 +274,9 @@ func cmdPredict(repoRoot string, args []string) error {
 
 	// Load model
 	modelPath := fmt.Sprintf("%s/bsjp_%s/model_lightgbm_opening_tp3.txt", cfg.ModelDir, *variant)
+	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
+		modelPath = fmt.Sprintf("%s/%s/model_lightgbm_opening_tp3.txt", cfg.ModelDir, *variant)
+	}
 	lgb, err := model.LoadLightGBM(modelPath)
 	if err != nil {
 		return fmt.Errorf("load model: %w", err)
@@ -475,6 +370,14 @@ func cmdPredict(repoRoot string, args []string) error {
 
 		proba := lgb.Predict(feat)
 		picks = append(picks, pick{ticker, entryPrice, proba, feat})
+
+		if *dumpTicker != "" && ticker == *dumpTicker {
+			b, _ := json.MarshalIndent(feat, "", "  ")
+			fmt.Printf("--- FEATURE VECTOR DUMP: %s ---\n", ticker)
+			os.Stdout.Write(b)
+			fmt.Println("\n--- END DUMP ---")
+		}
+
 		if len(picks) <= 5 {
 			fmt.Printf("  debug ticker=%s features=%d entry=%.0f proba=%.4f\n", ticker, len(feat), entryPrice, proba)
 		}
@@ -487,6 +390,29 @@ func cmdPredict(repoRoot string, args []string) error {
 	sort.Slice(picks, func(i, j int) bool {
 		return picks[i].proba > picks[j].proba
 	})
+
+	for _, r := range picks {
+		if r.ticker == "HRTA" || r.ticker == "GGRM" {
+		    fmt.Printf("  debug ticker=%s proba=%.4f cost=%.4f ara=%.4f\n", r.ticker, r.proba, r.features["pre14_market_cost_est"], r.features["pre14_ara_touched"])
+		}
+	}
+
+	// Apply base filters for v23 (price >= 500, cost <= 0.03)
+	if strings.Contains(*variant, "v23") {
+		filtered := picks[:0]
+		for _, p := range picks {
+			if cost, ok := p.features["pre14_market_cost_est"]; ok {
+				if cost > 0.03 {
+					continue
+				}
+			}
+			if p.entryPrice < 500 {
+				continue
+			}
+			filtered = append(filtered, p)
+		}
+		picks = filtered
+	}
 
 	// Apply ARA-state policy filter (v20)
 	beforeFilter := len(picks)
@@ -516,6 +442,9 @@ func cmdPredict(repoRoot string, args []string) error {
 	}
 
 	topN := 3
+	if strings.Contains(*variant, "v23") {
+		topN = 2
+	}
 	if topN > len(picks) {
 		topN = len(picks)
 	}
@@ -692,10 +621,10 @@ func cmdCheckWithDB(repoRoot string, dbPath string, verbose bool, tgFlag bool) e
 	}
 
 	// ── 3. Model Check ──
-	mpath := fmt.Sprintf("%s/bsjp_v19d_close10_preclose14_orb_md100_l21.5/model_lightgbm_opening_tp3.txt", cfg.ModelDir)
+	mpath := fmt.Sprintf("%s/v23b_t1audit2_clean/model_lightgbm_opening_tp3.txt", cfg.ModelDir)
 	if _, err := os.Stat(mpath); err == nil {
 		trees, feats := modelCounts(mpath)
-		items = append(items, item{"Model", "✅", fmt.Sprintf("v19d loaded trees=%d features=%d quality=OK", trees, feats)})
+		items = append(items, item{"Model", "✅", fmt.Sprintf("v23b loaded trees=%d features=%d quality=OK", trees, feats)})
 	} else {
 		items = append(items, item{"Model", "❌", "missing"})
 		allOK = false
@@ -989,6 +918,21 @@ func indexXl(rows []features.XlRow) map[string]*features.XlRow {
 
 func setXlCols(dr *db.FeatureRow, x *features.XlRow) {
 	for col, val := range x.Cols {
+		v := val
+		dr.Cols[col] = &v
+	}
+}
+
+func indexAraHistory(rows []features.AraHistoryRow) map[string]*features.AraHistoryRow {
+	m := make(map[string]*features.AraHistoryRow)
+	for i := range rows {
+		m[rows[i].Ticker] = &rows[i]
+	}
+	return m
+}
+
+func setAraHistoryCols(dr *db.FeatureRow, a *features.AraHistoryRow) {
+	for col, val := range a.Cols {
 		v := val
 		dr.Cols[col] = &v
 	}

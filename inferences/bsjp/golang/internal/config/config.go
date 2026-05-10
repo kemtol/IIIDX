@@ -12,6 +12,7 @@ type Config struct {
 	L2Parquet  string
 	DuckDBPath string
 	ModelDir   string
+	ModulesDir string
 }
 
 func FromCWD() (*Config, error) {
@@ -33,6 +34,7 @@ func FromRoot(root string) *Config {
 		L2Parquet:  filepath.Join(root, "data", "Level_2_Datamart", "training_datamart_bsjp_overnight.parquet"),
 		DuckDBPath: filepath.Join(root, "inferences", "bsjp", "db", "inference.duckdb"),
 		ModelDir:   filepath.Join(root, "model", "BSJP"),
+		ModulesDir: filepath.Join(root, "data", "Level_1_Features", "modules"),
 	}
 }
 

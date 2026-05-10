@@ -452,12 +452,25 @@ def print_source_snapshot(
     print(f"  yfinance_4h  max(datetime): {max_time(yf_4h_path, 'datetime')}")
 
 
-def build_parquet_filters(column: str, date_from: str | pd.Timestamp | None, date_to: str | pd.Timestamp | None):
+def build_parquet_filters(column: str, date_from: str | pd.Timestamp | None, date_to: str | pd.Timestamp | None, target_is_string: bool = False):
     filters = []
-    if date_from is not None:
-        filters.append((column, ">=", date_from))
-    if date_to is not None:
-        filters.append((column, "<=", date_to))
+    f_from = pd.to_datetime(date_from) if date_from is not None else None
+    f_to = pd.to_datetime(date_to) if date_to is not None else None
+
+    if column == "datetime":
+        if f_from is not None and f_from.tzinfo is None:
+            f_from = f_from.tz_localize("UTC")
+        if f_to is not None and f_to.tzinfo is None:
+            f_to = f_to.tz_localize("UTC")
+    
+    if target_is_string:
+        if f_from is not None: f_from = f_from.strftime("%Y-%m-%d")
+        if f_to is not None: f_to = f_to.strftime("%Y-%m-%d")
+
+    if f_from is not None:
+        filters.append((column, ">=", f_from))
+    if f_to is not None:
+        filters.append((column, "<=", f_to))
     return filters or None
 
 
@@ -837,6 +850,9 @@ def load_yfinance_intraday_features(
     df = pd.read_parquet(path, columns=cols, filters=filters)
     df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
     df["date"] = df["datetime"].dt.normalize()
+    if df["date"].dt.tz is not None:
+        df["date"] = df["date"].dt.tz_localize(None)
+    
     df["ticker"] = normalize_ticker_series(df["ticker"])
     df = df.dropna(subset=["datetime", "date", "ticker"])
 
@@ -1018,7 +1034,7 @@ def main() -> None:
     if not args.input.exists():
         raise FileNotFoundError(f"Input parquet not found: {args.input}")
 
-    raw_filters = build_parquet_filters("date", feature_date_from, feature_date_to)
+    raw_filters = build_parquet_filters("date", feature_date_from, feature_date_to, target_is_string=True)
     if raw_filters:
         print(f"[Load] Applying raw broksum parquet filters: {raw_filters}")
     raw_df = pd.read_parquet(args.input, filters=raw_filters)

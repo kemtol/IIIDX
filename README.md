@@ -2,6 +2,20 @@
 
 Sistem screener fully-automated untuk saham IDX non-blue chip. Sistem mengeksekusi strategi trading berbasis aktivitas *broker summary* yang dikuantifikasi menjadi probabilitas empiris. Tidak ada intervensi manual atau keputusan berbasis intuisi—murni berdasarkan *data-driven model*.
 
+## Current Research State (2026-05-09)
+
+Current BSJP research is focused on `model/BSJP/v23b_t1audit2_clean/`, a clean `close10` candidate:
+
+- Objective: entry close 15:xx T, exit open 10:xx T+1.
+- Status: research-only, not production/inference-ready.
+- Locked OOT artifact: 2025-11-17 -> 2026-04-23.
+- Locked OOT metrics: AUC 0.5346, cum net +207.9%, MaxDD -24.2%, best iteration 5.
+- No-lookahead audit: `_LOG/v23b_t1audit2_clean_no_lookahead_audit_20260509.json`; hard failures all false.
+- Current quick-win policy candidate: k=2 / max weight 25% / cost cap 3% / q=.85; locked OOT +255.0%, MaxDD -17.9%.
+- Latest provisional calendar extension ends on 2026-05-06, not 2026-05-09. 2026-05-09 is Saturday and 2026-05-08 entry is not closed yet.
+
+Plain read: v23 is not a pure ARA hunter. It mostly learns pre-14 intraday behavior and macro regime; ARA-history is a small helper. Remaining work is robustness/overfit validation, especially full rolling-retrain validation.
+
 ## Arsitektur Sistem (3 Lapisan Data + Model)
 
 Sistem dibangun dalam 3 lapisan pipeline data yang berjalan setiap hari, ditambah layer model:
@@ -69,17 +83,17 @@ Production inference memakai DuckDB agar scoring harian tidak bergantung pada re
 | Picks table | `picks_log` | Log rekomendasi per variant/date/rank |
 
 Script penting:
-- `inferences/bsjp/bootstrap_feature_store.py`: backfill feature vectors dari L2 parquet ke DuckDB. Dipakai saat bootstrap awal atau saat model feature list berubah.
-- `inferences/bsjp/fetch.py`: fast-path vector extraction/upsert. Default-nya tidak rebuild L1/L2.
-- `inferences/bsjp/run.py`: scoring dari DuckDB `features_store`.
+- Current daily production entrypoint: `pipeline/run/run_inference_bsjp.sh`, which calls the Go binary.
+- Go manual path: `inferences/bsjp/golang/cmd/bsjp`.
+- Older Python `bootstrap_feature_store.py` / `fetch.py` / `run.py` notes below are historical context only; do not use them as the current production path.
 
-Kontrak `fetch.py` terbaru:
+Legacy Python `fetch.py` contract:
 - `--force` hanya re-upsert vector ke DuckDB, bukan rebuild L1/L2.
 - Jika L1/L2 belum punya target date, script stop dengan pesan eksplisit.
 - Slow rebuild hanya bisa dipanggil sengaja dengan `--rebuild-l1` atau `--rebuild-l2`.
 - Ini dibuat supaya agent tidak sengaja menjalankan `generate_broksum_datamart.py` yang membaca jutaan row untuk kebutuhan inference.
 
-Benchmark terakhir:
+Historical Python benchmark:
 - Fast path `fetch.py --date 2026-04-23 --force`: 3.35 detik, extract/upsert 157 vectors, tidak menyentuh mtime L1/L2 parquet.
 - Bootstrap 1 hari ke DuckDB: 2.88 detik untuk 157 vectors.
 - Bootstrap full L2 ke DuckDB: 8.74 detik untuk 113,263 vectors, 730 trading days.
@@ -151,7 +165,7 @@ bash pipeline/run/run_feature_l1.sh
 
 # 5. Build Level 2 training datamart
 cd edges/bsjp_overnight_sl2/scripts
-python generate_datamart.py
+python generate_datamart.py --exit-hour 10
 
 # 6. Train/evaluate model
 python train_lightgbm.py \
@@ -165,12 +179,14 @@ python train_lightgbm.py \
 ### Production Inference
 
 ```bash
-# One-time or after model feature-list changes:
-python inferences/bsjp/bootstrap_feature_store.py --replace
+# Daily production path:
+bash pipeline/run/run_inference_bsjp.sh
 
-# Daily scoring when L1/L2/vector source is already fresh:
-python inferences/bsjp/fetch.py --date YYYY-MM-DD --force
-python inferences/bsjp/run.py --variant v15 --date YYYY-MM-DD --log-picks
+# Manual Go path:
+cd inferences/bsjp/golang
+go build -o bsjp ./cmd/bsjp/
+./bsjp fetch --date YYYY-MM-DD --force
+./bsjp predict --variant v15 --log
 ```
 
 Penting:
@@ -191,7 +207,7 @@ Penting:
 | SL | `overnight_return < -2%` (klasifikasi saja) |
 | Model | LightGBM binary classifier |
 | Policy | Top-3 per hari; sizing tergantung artifact model |
-| Active inference | `inferences/bsjp/variants/v15.py` |
+| Active inference | Go binary via `pipeline/run/run_inference_bsjp.sh` |
 | Current v15 | AUC OOT `0.60198`, cum_return `9.74255`, max_dd `-15.25%`, 249 features |
 
 Top features: closing momentum (`close_ret_last1h` dominan), overnight history (gap up rate 20-60d), daily OHLCV, global macro (VIX), gap down profile (overnight_p10_5d — baru di v7).
@@ -207,6 +223,11 @@ Catatan v18 / close10:
 - Rebuild close10 yang menyerupai OLD dibuat di `data/Level_2_Datamart/training_datamart_bsjp_close10_rebuild_v18like.parquet`.
 - Model kandidat `model/BSJP/bsjp_v18_close10_rebuild/`: 249 features, 408 trees, OOT AUC 0.650. Raw k3/w34 policy gives mean daily net +1.30% with MaxDD -35.6%.
 - Recommended paper-trade artifact: `model/BSJP/bsjp_v18_close10_rebuild_policy_w25/`, same model with k=3 and max weight 25%. OOT mean daily net +0.98%, MaxDD -28.2%; Monte Carlo 100d median 2.57x, P(loss)=1.78%, P(MaxDD≤-30%)=7.61%.
+
+Catatan v23 / clean close10 research:
+- v19d/v20 returns are now considered inflated because old training used same-day broker activity unavailable in production.
+- v23 patched broker aggregate, CVD, `yf_daily_*` aggregate leakage, and regenerated ARA-history.
+- Current clean artifact is `model/BSJP/v23b_t1audit2_clean/`; do not promote until rolling-retrain validation passes.
 
 ### BPJS (Beli Pagi Jual Siang) — **PAUSE ⏸️**
 
@@ -226,7 +247,7 @@ Catatan v18 / close10:
 ```bash
 # Training BSJP (ACTIVE)
 cd edges/bsjp_overnight_sl2/scripts
-python generate_datamart.py --strategy-mode bsjp
+python generate_datamart.py --exit-hour 10
 python train_lightgbm.py --output-dir ../../model/BSJP/bsjp_v8 --feature-prune-top-n 0 --tp-pct 0.01 --sl-pct -0.02 --oot-valid-days 100 --rank-weights "0.6,0.3,0.1"
 
 # Training BPJS (PAUSED)

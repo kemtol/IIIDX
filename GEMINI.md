@@ -20,6 +20,17 @@ The system is strictly divided into **two separate products** that share data la
 - **Level 2 (Training Datamart)**: Feature aggregation explicitly tied to the trading objective (Parquet). 
 - **Inference DB**: Fast DuckDB store for live feature vectors (`inferences/bsjp/db/inference.duckdb`).
 
+### Current BSJP Research Handoff (2026-05-09)
+- Current clean candidate: `model/BSJP/v23b_t1audit2_clean/`.
+- Objective: BSJP `close10` — entry close 15:xx T, exit open 10:xx T+1.
+- Status: research-only, not production/inference-ready.
+- Locked OOT artifact: 2025-11-17 -> 2026-04-23.
+- Locked OOT metrics: AUC 0.5346, cum net +207.9%, MaxDD -24.2%, best iteration 5, overfit gap 0.0616.
+- No-lookahead audit: `_LOG/v23b_t1audit2_clean_no_lookahead_audit_20260509.json`; hard failures all false.
+- Current quick-win policy candidate: k=2 / max weight 25% / cost cap 3% / q=.85; locked OOT +255.0%, MaxDD -17.9%.
+- Latest provisional calendar extension ends at 2026-05-06, not 2026-05-09. 2026-05-09 is Saturday and 2026-05-08 entry is not closed yet.
+- Do not cite v19d/v20 headline returns as credible; they are now considered inflated by same-day broker leakage and ARA fillability assumptions.
+
 ---
 
 ## Building and Running
@@ -36,7 +47,7 @@ bash pipeline/run/run_feature_l1.sh
 
 # Build Level 2 datamart & Train
 cd edges/bsjp_overnight_sl2/scripts
-python generate_datamart.py --strategy-mode bsjp
+python generate_datamart.py --exit-hour 10
 python train_lightgbm.py \
   --output-dir ../../model/BSJP/bsjp_vNEXT \
   --feature-modules-dir ../../data/Level_1_Features/modules \
