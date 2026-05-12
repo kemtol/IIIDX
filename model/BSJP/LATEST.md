@@ -1396,3 +1396,69 @@ Last 7 closed trading days:
 | 2026-05-06 | ABDA, GGRM | -2.42% |
 
 Read: this extension is useful for user-facing calendar intuition, but it is **not equivalent to locked OOT**. Treat all post-2026-04-23 performance as provisional until broker aggregate/CVD module coverage is brought forward and the extension is regenerated cleanly.
+
+## 2026-05-10 — v25 Clean Datamart Retrain Baseline
+
+Artifact: `model/BSJP/v25_clean_nl31_md100_l2.0_market_k3_w25/`
+
+Training input: `data/Level_2_Datamart/training_datamart_bsjp_v25_clean.parquet`
+
+This is the P0-clean retrain after dropping unsafe same-day/full-day v25 feature families (`f2_*`, `forensic_*`, `v25_sector_*`, `sector_ticker_count`), removing one duplicate key, and dropping low-coverage dates below 300 tickers.
+
+Parameters:
+
+- OOT: last 100 trading days, 2025-11-26 -> 2026-05-06
+- Train/pre-OOT pool: 2023-03-06 -> 2025-11-25
+- `num_leaves=31`, `max_depth=5`, `min_data_in_leaf=100`
+- `lambda_l1=0.5`, `lambda_l2=1.5`, `min_gain_to_split=0.05`
+- Execution model: `market`
+- Policy: threshold, `p_cut=0.035`, `max_positions=3`, `max_weight=0.25`, `min_entry_price=500`, `max_pre14_market_cost_est=0.030`
+
+Result:
+
+- Status: `FAIL:NEGATIVE_OOT_EXPECTANCY`
+- Selected features: 67
+- Walk-forward AUCs: 0.5665, 0.5460, 0.5547, 0.5586
+- OOT AUC: 0.5468
+- OOT AUCPR: 0.3996
+- Overfit gap: AUC +0.0257
+- OOT portfolio: cumulative net -57.35%, max DD -58.06%, mean daily net -0.81%
+
+Interpretation: dropping the unsafe v25 feature families produced a cleaner dataset but removed the apparent portfolio edge. This baseline should not be promoted. Next useful work is to rebuild the dropped feature families as shifted/availability-safe versions, then retrain and compare against this clean baseline.
+
+### v25 Clean + T-1 Quick Features
+
+Artifact: `model/BSJP/v25_clean_t1quick_nl31_md100_l2.0_market_k3_w25/`
+
+Training input: `data/Level_2_Datamart/training_datamart_bsjp_v25_clean_t1quick.parquet`
+
+Clean-plus added four shifted T-1 features derived from the previously dropped v25 family:
+
+- `f2_inventory_decay_t1`
+- `forensic_inventory_10d_t1`
+- `v25_sector_turnover_share_t1`
+- `v25_sector_flow_share_t1`
+
+The T-1 columns are explicitly shifted per ticker so date T uses the previous available source row. Coverage remains limited (~43.35% non-null) because the source modules begin around 2024-10.
+
+Result:
+
+- Status: `PASS`
+- Selected features: 71
+- Walk-forward AUCs: 0.5687, 0.5457, 0.5538, 0.5595
+- OOT AUC: 0.5459
+- OOT AUCPR: 0.4017
+- OOT top-5 precision: 53.0%
+- OOT portfolio: cumulative net +95.59%, max DD -35.95%, mean daily net +0.78%
+- Overfit gap: AUC +0.0259
+
+T-1 feature importance:
+
+| Feature | Gain | Splits |
+|---|---:|---:|
+| `v25_sector_turnover_share_t1` | 82.60 | 3 |
+| `v25_sector_flow_share_t1` | 22.84 | 1 |
+| `f2_inventory_decay_t1` | 11.49 | 2 |
+| `forensic_inventory_10d_t1` | 0.00 | 0 |
+
+Read: quick T-1 repair restored portfolio expectancy while keeping the obvious same-day leakage path closed. This is a research candidate, not production-ready yet. Next step should validate robustness with alternate leaves/policies and improve T-1 feature coverage or rebuild shifted modules from fuller history.

@@ -138,20 +138,20 @@ fi
 # ═══════════════════════════════════════════════════════════════
 # Step 3: Predict
 # ═══════════════════════════════════════════════════════════════
-log "Scoring v24b_final_production"
-"$BSJP" predict --variant v24b_final_production --date "$INFERENCE_DATE" --log 2>&1 | tee -a "$LOG_FILE"
+log "Scoring v25_final_champion"
+"$BSJP" predict --variant v25_final_champion --date "$INFERENCE_DATE" --log 2>&1 | tee -a "$LOG_FILE"
 
 # ── Telegram: signal summary ──
 if [[ "$(now_hhmm)" > "$CUTOFF_HHMM" ]]; then
   log "Cutoff passed after scoring; not sending live Telegram signal"
 else
-  V24B_PICKS=$("$BSJP" predict --variant v24b_final_production --date "$INFERENCE_DATE" 2>&1 \
+  V25_PICKS=$("$BSJP" predict --variant v25_final_champion --date "$INFERENCE_DATE" 2>&1 \
     | grep -E '^  #[12] ' | sed 's/^  //' || echo "(no picks)")
 
   SIGNAL_MSG="📡 <b>BSJP Signal — ${INFERENCE_DATE}</b>
 
-<b>v24b (Inventory Decay):</b>
-${V24B_PICKS}"
+<b>v25 Championship:</b>
+${V25_PICKS}"
 
   send_telegram "$SIGNAL_MSG"
 fi

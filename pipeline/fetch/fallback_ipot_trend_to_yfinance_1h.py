@@ -306,8 +306,13 @@ def merge_preserving_yfinance(yfinance: pd.DataFrame, fallback_rows: pd.DataFram
     if fallback_rows.empty:
         return yfinance.sort_values(["datetime", "ticker"]).reset_index(drop=True)
 
-    combined = pd.concat([yfinance, fallback_rows], ignore_index=True)
-    combined = combined.drop_duplicates(subset=["datetime", "ticker"], keep="first")
+    existing_keys = set(zip(yfinance["datetime"], yfinance["ticker"]))
+    fallback = fallback_rows.copy()
+    fallback = fallback.drop_duplicates(subset=["datetime", "ticker"], keep="last")
+    fallback_keys = list(zip(fallback["datetime"], fallback["ticker"]))
+    fallback = fallback[[key not in existing_keys for key in fallback_keys]]
+
+    combined = pd.concat([yfinance, fallback], ignore_index=True)
     combined = combined.sort_values(["datetime", "ticker"]).reset_index(drop=True)
     combined = combined[REQUIRED_YF_COLUMNS]
     combined["datetime"] = pd.to_datetime(combined["datetime"], utc=True, errors="coerce")
@@ -370,10 +375,10 @@ def run(args: argparse.Namespace) -> FallbackReport:
     warnings = list(trend_warnings)
     if ipot_bars.empty:
         warnings.append("no IPOT bars available for target hour")
-    if missing_count and 0 < len(fallback_rows) < missing_count:
+    if missing_count and len(fallback_rows) < missing_count:
         warnings.append(f"partial fallback coverage: can fill {len(fallback_rows)} of {missing_count} missing rows")
     if missing_count and fallback_rows.empty:
-        status = "FAIL_IPOT_INSUFFICIENT"
+        status = "PASS_NO_NEW_FALLBACK_ROWS" if len(ipot_bars) else "FAIL_IPOT_INSUFFICIENT"
     elif missing_count == 0:
         status = "PASS_NO_FALLBACK_NEEDED"
     elif args.mode == "dry-run":

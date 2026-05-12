@@ -4,7 +4,38 @@ from pathlib import Path
 
 IDX_DIR = Path("/home/kemal/idx")
 L0_PATH = IDX_DIR / "data/Level_0_Raw/broksum_bybroker.parquet"
+YF_1H = IDX_DIR / "data/Level_0_Raw/yfinance_1h.parquet"
+YF_DAILY = IDX_DIR / "data/Level_0_Raw/yfinance_daily.parquet"
 OUTPUT_PATH = IDX_DIR / "data/Level_1_Features/modules/forensic_v2_features.parquet"
+
+def normalize_yf_1h_session_time(raw: pd.DataFrame) -> pd.DataFrame:
+    df = raw.copy().reset_index(drop=True)
+    df["_row_id"] = np.arange(len(df), dtype=np.int64)
+    dt = pd.to_datetime(df["datetime"], errors="coerce")
+    if dt.dt.tz is not None:
+        utc_plus7 = dt.dt.tz_convert("Asia/Jakarta").dt.tz_localize(None)
+        legacy_plus14 = (dt + pd.Timedelta(hours=14)).dt.tz_localize(None)
+    else:
+        utc_plus7 = dt
+        legacy_plus14 = dt + pd.Timedelta(hours=14)
+
+    ticker = df["ticker"].astype(str).str.replace(r"\.JK$", "", regex=True)
+    candidates = []
+    for scheme_order, (scheme, local_dt) in enumerate(
+        [("utc_plus7", utc_plus7), ("legacy_plus14", legacy_plus14)]
+    ):
+        cand = df[["_row_id", "ticker"]].copy()
+        cand["date"] = local_dt.dt.normalize()
+        cand["hour"] = local_dt.dt.hour
+        cand["ticker"] = ticker
+        valid_hour = cand["hour"].isin({9, 10, 11, 13, 14, 15, 16}).astype(int)
+        score = valid_hour.groupby([cand["date"], cand["ticker"]]).transform("sum")
+        cand["_score"] = score.astype(float) - (scheme_order * 0.0001)
+        candidates.append(cand)
+
+    best = pd.concat(candidates).sort_values("_score", ascending=False).drop_duplicates("_row_id")
+    df = df.merge(best[["_row_id", "date", "hour", "ticker"]], on="_row_id", suffixes=("_raw", ""))
+    return df.drop(columns=["_row_id"])
 
 def build_forensic_v2():
     print("--- Building Forensic Features V2 (Micro Momentum & Decay Inventory) ---")
@@ -12,12 +43,14 @@ def build_forensic_v2():
     df['date'] = pd.to_datetime(df['date']).dt.normalize()
     
     # 1. Decay Inventory
+    print("  Calculating Decay Inventory...")
     df_sum = df.groupby(['date', 'stock_code'])['net_val'].sum().reset_index()
     df_sum = df_sum.sort_values(['stock_code', 'date'])
     df_sum['f2_inventory_decay'] = df_sum.groupby('stock_code')['net_val'].transform(lambda x: x.ewm(alpha=0.3).sum())
     
     # 2. Absorption Index
-    yf = pd.read_parquet(IDX_DIR / "data/Level_0_Raw/yfinance_daily.parquet")
+    print("  Calculating Absorption...")
+    yf = pd.read_parquet(YF_DAILY)
     yf['date'] = pd.to_datetime(yf['date']).dt.normalize()
     yf['ticker'] = yf['ticker'].str.replace('.JK', '', regex=False)
     
@@ -25,13 +58,12 @@ def build_forensic_v2():
     df_sum['day_ret'] = (df_sum['close'] - df_sum['open']) / df_sum['open'].replace(0, np.nan)
     df_sum['f2_absorption_ratio'] = df_sum['net_val'] / (df_sum['day_ret'].abs() + 0.001)
     
-    # 3. Last Hour Momentum
-    yf1h = pd.read_parquet(IDX_DIR / "data/Level_0_Raw/yfinance_1h.parquet")
-    yf1h['datetime'] = pd.to_datetime(yf1h['datetime']).dt.tz_localize(None)
-    yf1h['date'] = yf1h['datetime'].dt.normalize()
-    yf1h['ticker'] = yf1h['ticker'].str.replace('.JK', '', regex=False)
-    yf1h['hour'] = yf1h['datetime'].dt.hour
+    # 3. Last Hour Momentum (with normalization)
+    print("  Calculating Last Hour Momentum (Normalized)...")
+    raw_1h = pd.read_parquet(YF_1H)
+    yf1h = normalize_yf_1h_session_time(raw_1h)
     
+    # Ratio of vol at hour 14 vs avg morning vol
     morning_vol = yf1h[yf1h['hour'] < 13].groupby(['date', 'ticker'])['volume'].mean().reset_index(name='avg_morning_vol')
     afternoon_vol = yf1h[yf1h['hour'] == 14].groupby(['date', 'ticker'])['volume'].sum().reset_index(name='vol_14h')
     
