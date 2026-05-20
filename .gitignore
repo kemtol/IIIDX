@@ -38,26 +38,18 @@ data/_ARCH/
 # Top-level archive (large snapshots)
 _ARCH/
 
-# Heavy model artifacts (keep metrics.json, LATEST.md, feature_importance.csv, small CSVs)
-# Use ** to handle nested dirs (e.g. bsjp_grid_fine/md100_lam1_0_gain0_1/, double-nested dirs)
-model/**/model_lightgbm_*.txt
+# Heavy model artifacts. Keep small, reproducibility-critical artifacts in git:
+# model_lightgbm_*.txt, metrics/feature CSVs, report PNGs, and Monte Carlo summaries.
+# Large parquet outputs should move to DVC/LFS when a model is locked.
 model/**/valid_predictions.parquet
 model/**/portfolio_*.parquet
-model/**/walkforward_metrics.csv
-model/**/monte_carlo/
-model/**/*.png
-model/**/*.html
 model/**/*.log
 model/*/_ARCH/
 model/*/_BAK/
 
-# Misplaced edges/model/ (artifact dari training cwd bug — track metrics.json saja, exclude binary)
-edges/model/**/model_lightgbm_*.txt
+# Misplaced edges/model/ (artifact dari training cwd bug)
 edges/model/**/valid_predictions.parquet
 edges/model/**/portfolio_*.parquet
-edges/model/**/monte_carlo/
-edges/model/**/*.png
-edges/model/**/*.html
 
 # DuckDB files (regenerated, large)
 *.duckdb

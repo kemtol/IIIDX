@@ -1,0 +1,18 @@
+{
+  "source_file": "/home/kemal/idx/model/BSJP/v25_clean_t1quick_nl31_md100_l2.0_market_k3_w25/portfolio_daily.parquet",
+  "source_rows": 100,
+  "source_start_date": "2025-11-26 00:00:00",
+  "source_end_date": "2026-05-06 00:00:00",
+  "seed": 20260424,
+  "n_paths": 10000,
+  "block_size_days": 5,
+  "horizons_days": [
+    100,
+    252
+  ],
+  "drawdown_thresholds": [
+    0.2,
+    0.25,
+    0.3
+  ]
+}
