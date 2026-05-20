@@ -1462,3 +1462,16 @@ T-1 feature importance:
 | `forensic_inventory_10d_t1` | 0.00 | 0 |
 
 Read: quick T-1 repair restored portfolio expectancy while keeping the obvious same-day leakage path closed. This is a research candidate, not production-ready yet. Next step should validate robustness with alternate leaves/policies and improve T-1 feature coverage or rebuild shifted modules from fuller history.
+
+Monte Carlo added 2026-05-18:
+
+- Artifact: `model/BSJP/v25_clean_t1quick_nl31_md100_l2.0_market_k3_w25/monte_carlo/`
+- Method: block bootstrap over `portfolio_daily.parquet`, 10,000 paths, block size 5, horizons 100d and 252d.
+- Source OOT daily returns: 100 rows, 2025-11-26 -> 2026-05-06, mean +0.7803%, std 4.6766%, min -10.53%, max +13.61%.
+
+| Horizon | Median terminal | P5 terminal | P95 terminal | P(loss) | Mean MaxDD | Median MaxDD | P(MaxDD <= -30%) |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 100d | 2.03x | 0.73x | 5.73x | 12.88% | -35.09% | -33.32% | 61.79% |
+| 252d | 5.78x | 1.13x | 29.64x | 3.98% | -46.43% | -45.18% | 93.45% |
+
+Read: terminal return distribution is positive, but drawdown risk is high. Monte Carlo confirms this exact `k=3/w25` policy is still not operationally conservative: the 100d probability of MaxDD worse than -30% is 61.79%. Next work should prioritize policy tightening and rolling-retrain stability, not promotion.

@@ -355,6 +355,10 @@ def merge_append_with_upsert(existing_df: pd.DataFrame, new_df: pd.DataFrame) ->
         return existing_df
 
     combined = pd.concat([existing_df, new_df], ignore_index=True)
+    # Existing parquet stores date as datetime64[ns]; freshly fetched rows have str
+    # dates. Mixed dtype trips sort_values and pyarrow downstream — normalize first.
+    if "date" in combined.columns:
+        combined["date"] = pd.to_datetime(combined["date"], errors="coerce")
     if "scraped_at" in combined.columns:
         combined["scraped_at"] = pd.to_datetime(combined["scraped_at"], errors="coerce")
         combined = combined.sort_values(["date", "broker", "stock_code", "scraped_at"])
@@ -367,6 +371,31 @@ def merge_append_with_upsert(existing_df: pd.DataFrame, new_df: pd.DataFrame) ->
 def normalize_date_series_to_str(series: pd.Series) -> pd.Series:
     dt = pd.to_datetime(series, errors="coerce")
     out = dt.dt.strftime("%Y-%m-%d")
+    return out
+
+
+def coerce_broksum_schema_dtypes(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize broksum columns before Arrow/DuckDB ingestion."""
+    out = df.copy()
+    for c in ("broker", "stock_code"):
+        if c in out.columns:
+            out[c] = out[c].astype(str)
+    if "date" in out.columns:
+        out["date"] = normalize_date_series_to_str(out["date"])
+    if "broker_type" in out.columns:
+        out["broker_type"] = out["broker_type"].astype(str)
+    if "scraped_at" in out.columns:
+        out["scraped_at"] = out["scraped_at"].astype(str)
+    for c in ("breadth", "buy_freq", "sell_freq"):
+        if c in out.columns:
+            out[c] = pd.to_numeric(out[c], errors="coerce").fillna(0).astype("int64")
+    for c in (
+        "buy_val", "sell_val", "net_val", "total_val",
+        "buy_vol", "sell_vol", "net_vol",
+        "avg_buy_price", "avg_sell_price",
+    ):
+        if c in out.columns:
+            out[c] = pd.to_numeric(out[c], errors="coerce").astype("float64")
     return out
 
 
@@ -448,6 +477,9 @@ def flush_broker_rows_to_store(
         return {"before_rows": 0, "after_rows": 0, "delta_rows": 0}
 
     if stage is not None:
+        # Coerce to schema dtypes before staging — pyarrow infers dtypes from the
+        # pandas df during DuckDB's scan, and mixed-type columns trip ArrowTypeError.
+        broker_rows = coerce_broksum_schema_dtypes(broker_rows)
         stage.append(broker_rows)
         return {"before_rows": 0, "after_rows": len(broker_rows), "delta_rows": len(broker_rows)}
 
@@ -938,13 +970,20 @@ def flatten_to_master(data_list: list[dict]) -> list[dict]:
 def save_to_parquet(df: pd.DataFrame, output_path: Path, stage=None):
     """Save DataFrame to parquet. If stage is provided, append to DuckDB staging."""
     if stage is not None:
-        stage.append(df)
+        stage.append(coerce_broksum_schema_dtypes(df))
         return
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    
+    df = coerce_broksum_schema_dtypes(df)
+    # Parquet uses TIMESTAMP for date (existing schema, Go binary expects time.Time).
+    # Helper normalized to str for DuckDB VARCHAR — flip back for parquet.
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    if "scraped_at" in df.columns:
+        df["scraped_at"] = pd.to_datetime(df["scraped_at"], errors="coerce")
+
     # Sort for optimal query performance
     df = df.sort_values(["date", "broker", "stock_code"])
-    
+
     table = pa.Table.from_pandas(df)
     pq.write_table(
         table,
@@ -1409,7 +1448,20 @@ async def main():
                 resume_added = 0
                 resume_total = len(get_resume_completed_dates(resume_state_doc, broker)) if resume_state_enabled else 0
                 if resume_state_enabled:
-                    completed_for_resume = [d for d in dates_requested_for_broker if d not in set(error_dates)]
+                    # Only mark a date complete if its rows actually landed (flush succeeded
+                    # with delta_rows > 0) OR the scrape legitimately returned no_data.
+                    # This prevents the resume-state ≠ parquet divergence we hit when flush
+                    # silently failed and dates were still marked as completed.
+                    landed_dates = (
+                        set(broker_raw_df["date"].astype(str).unique())
+                        if not broker_raw_df.empty and flush_meta["delta_rows"] > 0
+                        else set()
+                    )
+                    no_data_set = set(no_data_dates)
+                    completed_for_resume = [
+                        d for d in dates_requested_for_broker
+                        if d in landed_dates or d in no_data_set
+                    ]
                     if completed_for_resume:
                         resume_added = add_resume_completed_dates(resume_state_doc, broker, completed_for_resume)
                         save_resume_state(resume_state_path, resume_state_doc)

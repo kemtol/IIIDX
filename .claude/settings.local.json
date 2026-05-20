@@ -56,7 +56,15 @@
       "Bash(go get *)",
       "Bash(timeout 35 ./probe_trend --code DKHH --seconds 25)",
       "Read(//tmp/**)",
-      "Bash(python3 -m json.tool)"
+      "Bash(python3 -m json.tool)",
+      "Bash(python3 -c \"import pandas as pd; df = pd.read_parquet\\('/home/kemal/idx/data/Level_0_Raw/yfinance_1h.parquet', columns=['date']\\); print\\('rows:', len\\(df\\)\\); print\\('min:', df['date'].min\\(\\)\\); print\\('max:', df['date'].max\\(\\)\\); print\\('top dates:'\\); print\\(df['date'].value_counts\\(\\).sort_index\\(\\).tail\\(10\\)\\)\")",
+      "Bash(grep -nE \"^BSJP=|BSJP=\\\\$|/bsjp\\\\b\" /home/kemal/idx/pipeline/run/run_preflight_bsjp.sh)",
+      "Bash(GOTOOLCHAIN=local go build -o bsjp ./cmd/bsjp/)",
+      "Bash(./inferences/bsjp/golang/bsjp check *)",
+      "Bash(python3 *)",
+      "Bash(cd *)",
+      "Bash(ps -o pid,ppid,cmd -p 891862 891908)",
+      "Bash(ps -p 891912,891983 -o pid,stat,cmd)"
     ]
   }
 }

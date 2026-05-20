@@ -621,10 +621,10 @@ func cmdCheckWithDB(repoRoot string, dbPath string, verbose bool, tgFlag bool) e
 	}
 
 	// ── 3. Model Check ──
-	mpath := fmt.Sprintf("%s/v23b_t1audit2_clean/model_lightgbm_opening_tp3.txt", cfg.ModelDir)
+	mpath := fmt.Sprintf("%s/v25_clean_t1quick_nl31_md100_l2.0_market_k3_w25/model_lightgbm_opening_tp3.txt", cfg.ModelDir)
 	if _, err := os.Stat(mpath); err == nil {
 		trees, feats := modelCounts(mpath)
-		items = append(items, item{"Model", "✅", fmt.Sprintf("v23b loaded trees=%d features=%d quality=OK", trees, feats)})
+		items = append(items, item{"Model", "✅", fmt.Sprintf("v25 loaded trees=%d features=%d quality=OK", trees, feats)})
 	} else {
 		items = append(items, item{"Model", "❌", "missing"})
 		allOK = false

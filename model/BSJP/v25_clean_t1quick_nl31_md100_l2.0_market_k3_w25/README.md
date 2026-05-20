@@ -319,7 +319,41 @@ Best OOT days:
 | 2026-01-07 | +10.65% |
 | 2026-01-22 | +9.75% |
 
-## 8. Feature Read
+## 8. Monte Carlo
+
+Monte Carlo was run on 2026-05-18 using block bootstrap over `portfolio_daily.parquet`:
+
+```bash
+python3 edges/bsjp_overnight_sl2/scripts/run_monte_carlo.py \
+  model/BSJP/v25_clean_t1quick_nl31_md100_l2.0_market_k3_w25 \
+  --n_paths 10000 \
+  --block_size 5 \
+  --horizons 100 252
+```
+
+Source:
+
+- Rows: 100 OOT daily returns
+- Date range: 2025-11-26 to 2026-05-06
+- Daily return mean: +0.7803%
+- Daily return std: 4.6766%
+- Min / max daily return: -10.53% / +13.61%
+
+Summary:
+
+| Horizon | Median terminal | P5 terminal | P95 terminal | P(loss) | Mean MaxDD | Median MaxDD | P(MaxDD <= -30%) |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 100d | 2.03x | 0.73x | 5.73x | 12.88% | -35.09% | -33.32% | 61.79% |
+| 252d | 5.78x | 1.13x | 29.64x | 3.98% | -46.43% | -45.18% | 93.45% |
+
+Read:
+
+- Terminal return distribution is positive, but drawdown risk is high.
+- 100d median terminal is about 2.03x, but 100d P(loss) is 12.88%.
+- 100d P(MaxDD <= -30%) is 61.79%, confirming the current policy is not yet operationally conservative.
+- 252d projection compounds strongly but has very high drawdown exposure; use it as a stress diagnostic, not a promotion claim.
+
+## 9. Feature Read
 
 Top gain features:
 
@@ -343,7 +377,7 @@ Plain read:
 - No single T-1 quick feature dominates the model.
 - `best_iteration=4` is low. This is not automatically leakage, but it does mean the model is shallow/early-stopped and should be tested for stability.
 
-## 9. Artifact List
+## 10. Artifact List
 
 Files in this folder:
 
@@ -359,6 +393,14 @@ Files in this folder:
 | `pnl_20d.png` | PnL chart, last 20 OOT days |
 | `pnl_50d.png` | PnL chart, last 50 OOT days |
 | `pnl_100d.png` | PnL chart, full 100-day OOT |
+| `monte_carlo/monte_config.json` | Monte Carlo configuration |
+| `monte_carlo/monte_summary_metrics.csv` | Monte Carlo summary metrics |
+| `monte_carlo/monte_equity_fan_100d.png` | 100d Monte Carlo equity fan |
+| `monte_carlo/monte_equity_fan_252d.png` | 252d Monte Carlo equity fan |
+| `monte_carlo/monte_maxdd_hist_100d.png` | 100d MaxDD histogram |
+| `monte_carlo/monte_maxdd_hist_252d.png` | 252d MaxDD histogram |
+| `monte_carlo/monte_return_cdf_100d.png` | 100d terminal return CDF |
+| `monte_carlo/monte_return_cdf_252d.png` | 252d terminal return CDF |
 
 Important external artifacts:
 
@@ -371,11 +413,12 @@ Important external artifacts:
 | `model/BSJP/LATEST.md` | Long-form model chronology |
 | `model/BSJP/_ARCH/20260510_model_cleanup/README.md` | Archive cleanup manifest |
 
-## 10. Known Caveats
+## 11. Known Caveats
 
 Do not promote this model yet without addressing these:
 
 - MaxDD is still large at -35.95%.
+- Monte Carlo confirms high drawdown risk: 100d P(MaxDD <= -30%) is 61.79%.
 - OOT has already been repeatedly observed during research, so avoid further direct tuning against this same 100-day OOT.
 - T-1 quick feature coverage is incomplete because upstream source modules begin around 2024-10.
 - `best_iteration=4` means the final model is very shallow; validate across parameter perturbations and rolling retrain.
@@ -383,7 +426,7 @@ Do not promote this model yet without addressing these:
 - Feature availability for all production-time columns must be verified against the 15:30 to 15:45 operational window.
 - IPOT websocket fallback exists but current `ws_trend_1m.duckdb` source coverage was only 159 tickers during simulation.
 
-## 11. What Next
+## 12. What Next
 
 P0:
 
@@ -393,7 +436,7 @@ P0:
    - `max_positions=2`
    - `max_weight=0.20`
    - stricter adaptive threshold or quantile if supported
-4. Decide whether MaxDD -35.95% is acceptable. If not, policy tightening is mandatory before deployment discussion.
+4. Decide whether MaxDD -35.95% and 100d MC P(MaxDD <= -30%) of 61.79% are acceptable. If not, policy tightening is mandatory before deployment discussion.
 
 P1:
 
@@ -412,7 +455,7 @@ P2:
 2. Produce a promotion checklist if rolling-retrain passes.
 3. Only after research promotion, map selected features into inference and validate training-inference parity.
 
-## 12. Continuation Instructions
+## 13. Continuation Instructions
 
 For the next agent:
 
@@ -433,4 +476,3 @@ If doing new model work, write results to a new folder under `model/BSJP/` and u
 - `model/BSJP/LATEST.md`
 - latest `_MEMORY/YYYYMMDDHHMMSS.md`
 - this README if the current candidate remains relevant
-
