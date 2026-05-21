@@ -15,6 +15,7 @@ LOG_DIR="$IDX_DIR/_LOG"
 LOG_FILE="$LOG_DIR/inference_bsjp_$(date +%Y%m%d).log"
 TODAY="$(date +%Y-%m-%d)"
 CUTOFF_HHMM="${BSJP_SIGNAL_CUTOFF_HHMM:-1555}"
+BSJP_VARIANT="${BSJP_VARIANT:-v25_clean_t1quick_nl31_md100_l2.0_market_k3_w25}"
 
 # Auto-detect latest date with 1h bars (skip if market hasn't opened yet)
 LATEST_1H=$(python3 -c "
@@ -138,19 +139,19 @@ fi
 # ═══════════════════════════════════════════════════════════════
 # Step 3: Predict
 # ═══════════════════════════════════════════════════════════════
-log "Scoring v25_final_champion"
-"$BSJP" predict --variant v25_final_champion --date "$INFERENCE_DATE" --log 2>&1 | tee -a "$LOG_FILE"
+log "Scoring $BSJP_VARIANT"
+"$BSJP" predict --variant "$BSJP_VARIANT" --date "$INFERENCE_DATE" --log 2>&1 | tee -a "$LOG_FILE"
 
 # ── Telegram: signal summary ──
 if [[ "$(now_hhmm)" > "$CUTOFF_HHMM" ]]; then
   log "Cutoff passed after scoring; not sending live Telegram signal"
 else
-  V25_PICKS=$("$BSJP" predict --variant v25_final_champion --date "$INFERENCE_DATE" 2>&1 \
-    | grep -E '^  #[12] ' | sed 's/^  //' || echo "(no picks)")
+  V25_PICKS=$("$BSJP" predict --variant "$BSJP_VARIANT" --date "$INFERENCE_DATE" 2>&1 \
+    | grep -E '^  #[123] ' | sed 's/^  //' || echo "(no picks)")
 
   SIGNAL_MSG="📡 <b>BSJP Signal — ${INFERENCE_DATE}</b>
 
-<b>v25 Championship:</b>
+<b>${BSJP_VARIANT}:</b>
 ${V25_PICKS}"
 
   send_telegram "$SIGNAL_MSG"

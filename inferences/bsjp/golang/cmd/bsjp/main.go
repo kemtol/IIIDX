@@ -171,6 +171,18 @@ func cmdFetch(repoRoot string, args []string) error {
 
 	// ── Step 3: Real-time Features (L0 Path) ──
 	// We override/fill the most recent data directly from L0 parquets
+	nMom, err := upsertLiveMomentum(database, yf1h, targetDate)
+	if err != nil {
+		return fmt.Errorf("live momentum: %w", err)
+	}
+	fmt.Printf("  live momentum/entry: %d rows updated from yfinance_1h\n", nMom)
+
+	nP14, err := upsertLivePreclose14(database, yf1h, targetDate)
+	if err != nil {
+		return fmt.Errorf("live preclose14: %w", err)
+	}
+	fmt.Printf("  live preclose14: %d rows updated from yfinance_1h\n", nP14)
+
 	bksPath := cfg.L0File("broksum_bybroker.parquet")
 	mbPath := cfg.L0File("master_broker.parquet")
 
@@ -194,6 +206,109 @@ func cmdFetch(repoRoot string, args []string) error {
 	}
 
 	return nil
+}
+
+func upsertLiveMomentum(database *sql.DB, yf1hPath, targetDate string) (int, error) {
+	rows, err := features.ComputeMomentum(yf1hPath, targetDate)
+	if err != nil {
+		return 0, err
+	}
+
+	for _, c := range []string{"entry_price", "close_ret_last1h", "close_vs_open_day", "close_range_pct"} {
+		if _, err := database.Exec(fmt.Sprintf(`ALTER TABLE features_store ADD COLUMN IF NOT EXISTS "%s" DOUBLE`, c)); err != nil {
+			return 0, err
+		}
+	}
+
+	updated := 0
+	for _, r := range rows {
+		assignments := []string{}
+		args := []interface{}{}
+		if r.EntryPrice != nil {
+			assignments = append(assignments, `"entry_price" = ?`)
+			args = append(args, *r.EntryPrice)
+		}
+		if r.CloseRetLast1h != nil {
+			assignments = append(assignments, `"close_ret_last1h" = ?`)
+			args = append(args, *r.CloseRetLast1h)
+		}
+		if r.CloseVsOpenDay != nil {
+			assignments = append(assignments, `"close_vs_open_day" = ?`)
+			args = append(args, *r.CloseVsOpenDay)
+		}
+		if r.CloseRangePct != nil {
+			assignments = append(assignments, `"close_range_pct" = ?`)
+			args = append(args, *r.CloseRangePct)
+		}
+		if len(assignments) == 0 {
+			continue
+		}
+
+		args = append(args, targetDate, r.Ticker)
+		res, err := database.Exec(
+			fmt.Sprintf(`UPDATE features_store SET %s WHERE date = ? AND ticker = ?`, strings.Join(assignments, ", ")),
+			args...,
+		)
+		if err != nil {
+			return updated, err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			updated++
+		}
+	}
+	return updated, nil
+}
+
+func upsertLivePreclose14(database *sql.DB, yf1hPath, targetDate string) (int, error) {
+	rows, err := features.ComputePreclose14(yf1hPath, targetDate)
+	if err != nil {
+		return 0, err
+	}
+
+	allCols := make(map[string]struct{})
+	for _, r := range rows {
+		for c := range r.Cols {
+			allCols[c] = struct{}{}
+		}
+	}
+	for c := range allCols {
+		if _, err := database.Exec(fmt.Sprintf(`ALTER TABLE features_store ADD COLUMN IF NOT EXISTS "%s" DOUBLE`, c)); err != nil {
+			return 0, err
+		}
+	}
+
+	updated := 0
+	for _, r := range rows {
+		if len(r.Cols) == 0 {
+			continue
+		}
+
+		colNames := make([]string, 0, len(r.Cols))
+		for c := range r.Cols {
+			colNames = append(colNames, c)
+		}
+		sort.Strings(colNames)
+
+		assignments := make([]string, 0, len(colNames))
+		args := make([]interface{}, 0, len(colNames)+2)
+		for _, c := range colNames {
+			assignments = append(assignments, fmt.Sprintf(`"%s" = ?`, c))
+			args = append(args, r.Cols[c])
+		}
+
+		args = append(args, targetDate, r.Ticker)
+		res, err := database.Exec(
+			fmt.Sprintf(`UPDATE features_store SET %s WHERE date = ? AND ticker = ?`, strings.Join(assignments, ", ")),
+			args...,
+		)
+		if err != nil {
+			return updated, err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			updated++
+		}
+	}
+	return updated, nil
 }
 
 // ── download ───────────────────────────────────────────────────────────
@@ -393,7 +508,7 @@ func cmdPredict(repoRoot string, args []string) error {
 
 	for _, r := range picks {
 		if r.ticker == "HRTA" || r.ticker == "GGRM" {
-		    fmt.Printf("  debug ticker=%s proba=%.4f cost=%.4f ara=%.4f\n", r.ticker, r.proba, r.features["pre14_market_cost_est"], r.features["pre14_ara_touched"])
+			fmt.Printf("  debug ticker=%s proba=%.4f cost=%.4f ara=%.4f\n", r.ticker, r.proba, r.features["pre14_market_cost_est"], r.features["pre14_ara_touched"])
 		}
 	}
 
@@ -557,23 +672,33 @@ func cmdCheckWithDB(repoRoot string, dbPath string, verbose bool, tgFlag bool) e
 			continue
 		}
 		dataDate, rows, entities := "", int64(0), int64(0)
+		maxHour := -1
 		if checkDB != nil {
 			if l0.label == "L0_yf_1h" {
-				dataDate, rows, entities = yf1hLatestQuality(l0.path, loc)
+				dataDate, rows, entities, maxHour = yf1hLatestQuality(l0.path, loc)
 			} else {
 				dataDate, rows, entities = parquetLatestQuality(checkDB, l0.path, l0.dateExpr, l0.entityCol)
 			}
 		}
 		quality := freshnessQuality(dataDate, l0.needDate)
+		if l0.label == "L0_yf_1h" && quality == "OK" && maxHour >= 0 && maxHour < 15 {
+			quality = "NO_15_BAR"
+		}
 		detail := fmt.Sprintf(
 			"latest=%s need=%s rows=%d %s=%d quality=%s",
 			emptyDash(dataDate), l0.needDate, rows, l0.entityLabel, entities, quality,
 		)
+		if l0.label == "L0_yf_1h" && maxHour >= 0 {
+			detail = fmt.Sprintf("%s max_hour=%d", detail, maxHour)
+		}
 		if l0.label == "L0_broksum" && checkDB != nil && dataDate != "" {
 			brokers := parquetDistinctOnDate(checkDB, l0.path, l0.dateExpr, "broker", dataDate)
 			detail = fmt.Sprintf("%s brokers=%d", detail, brokers)
 		}
 		if dataDate < l0.needDate {
+			items = append(items, item{l0.label, "❌", detail})
+			allOK = false
+		} else if l0.label == "L0_yf_1h" && quality == "NO_15_BAR" {
 			items = append(items, item{l0.label, "❌", detail})
 			allOK = false
 		} else {
@@ -592,9 +717,9 @@ func cmdCheckWithDB(repoRoot string, dbPath string, verbose bool, tgFlag bool) e
 			maxDateStr = maxDate.Format("2006-01-02")
 		}
 
-		// Deep Integrity: Do we have non-null features for today?
-		checkDB.QueryRow("SELECT COUNT(*) FROM features_store WHERE date = ? AND flow_total_net_buy_sum IS NOT NULL", today).Scan(&withBroker)
-		checkDB.QueryRow("SELECT COUNT(*) FROM features_store WHERE date = ? AND entry_price > 0", today).Scan(&withPrice)
+		// Deep Integrity: Do we have non-null executable features for the required DB date?
+		checkDB.QueryRow("SELECT COUNT(*) FROM features_store WHERE date = ? AND flow_total_net_buy_sum IS NOT NULL", needDBDate).Scan(&withBroker)
+		checkDB.QueryRow("SELECT COUNT(*) FROM features_store WHERE date = ? AND entry_price > 0", needDBDate).Scan(&withPrice)
 
 		dbQuality := freshnessQuality(maxDateStr, needDBDate)
 		if dbQuality == "OK" && nowWIB.Hour() >= 9 && withPrice == 0 {
@@ -740,10 +865,11 @@ func parquetDistinctOnDate(database *sql.DB, path, dateExpr, entityCol, date str
 	return n
 }
 
-func yf1hLatestQuality(path string, loc *time.Location) (latest string, rows, tickers int64) {
+func yf1hLatestQuality(path string, loc *time.Location) (latest string, rows, tickers int64, maxHour int) {
+	maxHour = -1
 	bars, err := parquet.ReadFile[yfBar](path)
 	if err != nil || len(bars) == 0 {
-		return "", 0, 0
+		return "", 0, 0, maxHour
 	}
 	for _, b := range bars {
 		ds := b.Datetime.In(loc).Format("2006-01-02")
@@ -757,9 +883,13 @@ func yf1hLatestQuality(path string, loc *time.Location) (latest string, rows, ti
 			continue
 		}
 		rows++
+		h := b.Datetime.In(loc).Hour()
+		if h > maxHour {
+			maxHour = h
+		}
 		seen[strings.TrimSuffix(b.Ticker, ".JK")] = struct{}{}
 	}
-	return latest, rows, int64(len(seen))
+	return latest, rows, int64(len(seen)), maxHour
 }
 
 // prevTradingDay returns the most recent weekday before t (skips t itself).

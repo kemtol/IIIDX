@@ -197,10 +197,21 @@ def clean_intraday(raw: pd.DataFrame, ticker: str) -> pd.DataFrame | None:
 def fetch_ticker_intraday(ticker: str, cfg: IntervalConfig, last_dt: pd.Timestamp | None) -> tuple[pd.DataFrame | None, str]:
     now_date = datetime.now().date()
     if last_dt is not None:
-        days_ago = (now_date - last_dt.date()).days
+        last_local = pd.Timestamp(last_dt)
+        if last_local.tzinfo is None:
+            last_local = last_local.tz_localize("UTC")
+        else:
+            last_local = last_local.tz_convert("UTC")
+        last_local = last_local.tz_convert(LOCAL_TZ)
+
+        days_ago = (now_date - last_local.date()).days
         if days_ago <= 0:
-            return None, "skipped (up to date)"
-        fetch_days = min(max(days_ago + cfg.buffer_days, cfg.min_fetch_days), cfg.max_days)
+            if cfg.interval == "1h" and last_local.hour < 15:
+                fetch_days = cfg.min_fetch_days
+            else:
+                return None, "skipped (up to date)"
+        else:
+            fetch_days = min(max(days_ago + cfg.buffer_days, cfg.min_fetch_days), cfg.max_days)
     else:
         fetch_days = cfg.max_days
 

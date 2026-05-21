@@ -13,7 +13,7 @@ if [[ ! -x "$PY_BIN" ]]; then
   exit 1
 fi
 
-cd "$REPO_ROOT"
+cd "$IDX_DIR"
 "$PY_BIN" "$IDX_DIR/pipeline/fetch/fetch_yfinance_daily.py" \
   --master-path "$IDX_DIR/data/Level_0_Raw/master_emiten.parquet" \
   --output "$IDX_DIR/data/Level_0_Raw/yfinance_daily.parquet" \
