@@ -631,13 +631,14 @@ func cmdCheckWithDB(repoRoot string, dbPath string, verbose bool, tgFlag bool) e
 	nowWIB := time.Now().In(loc)
 	today := nowWIB.Format("2006-01-02")
 	isWeekend := nowWIB.Weekday() == time.Saturday || nowWIB.Weekday() == time.Sunday
+	liveSignalDue := nowWIB.Hour() >= 15
 
 	checkDB, _ := db.Open(duckPath)
 	tMinus1 := prevTradingDay(nowWIB).Format("2006-01-02")
 
-	// 09:30 WIB rule for DuckDB today's data
+	// Before the signal window, today's intraday rows are expected to be incomplete.
 	needDBDate := tMinus1
-	if nowWIB.Hour() > 9 || (nowWIB.Hour() == 9 && nowWIB.Minute() >= 30) {
+	if liveSignalDue {
 		needDBDate = today
 	}
 
@@ -648,6 +649,7 @@ func cmdCheckWithDB(repoRoot string, dbPath string, verbose bool, tgFlag bool) e
 	}
 	var items []item
 	allOK := true
+	standby := false
 
 	// ── 0. Market Context ──
 	contextLine := fmt.Sprintf("D-Day: %s | T-1: %s", today, tMinus1)
@@ -681,8 +683,13 @@ func cmdCheckWithDB(repoRoot string, dbPath string, verbose bool, tgFlag bool) e
 			}
 		}
 		quality := freshnessQuality(dataDate, l0.needDate)
-		if l0.label == "L0_yf_1h" && quality == "OK" && maxHour >= 0 && maxHour < 15 {
-			quality = "NO_15_BAR"
+		if l0.label == "L0_yf_1h" {
+			if !liveSignalDue && dataDate >= tMinus1 && (dataDate < today || maxHour < 15) {
+				quality = "STANDBY_WAIT_15"
+				standby = true
+			} else if quality == "OK" && maxHour >= 0 && maxHour < 15 {
+				quality = "NO_15_BAR"
+			}
 		}
 		detail := fmt.Sprintf(
 			"latest=%s need=%s rows=%d %s=%d quality=%s",
@@ -695,7 +702,9 @@ func cmdCheckWithDB(repoRoot string, dbPath string, verbose bool, tgFlag bool) e
 			brokers := parquetDistinctOnDate(checkDB, l0.path, l0.dateExpr, "broker", dataDate)
 			detail = fmt.Sprintf("%s brokers=%d", detail, brokers)
 		}
-		if dataDate < l0.needDate {
+		if l0.label == "L0_yf_1h" && quality == "STANDBY_WAIT_15" {
+			items = append(items, item{l0.label, "⚠️", detail})
+		} else if dataDate < l0.needDate {
 			items = append(items, item{l0.label, "❌", detail})
 			allOK = false
 		} else if l0.label == "L0_yf_1h" && quality == "NO_15_BAR" {
@@ -722,9 +731,9 @@ func cmdCheckWithDB(repoRoot string, dbPath string, verbose bool, tgFlag bool) e
 		checkDB.QueryRow("SELECT COUNT(*) FROM features_store WHERE date = ? AND entry_price > 0", needDBDate).Scan(&withPrice)
 
 		dbQuality := freshnessQuality(maxDateStr, needDBDate)
-		if dbQuality == "OK" && nowWIB.Hour() >= 9 && withPrice == 0 {
+		if dbQuality == "OK" && liveSignalDue && withPrice == 0 {
 			dbQuality = "NO_ENTRY"
-		} else if dbQuality == "OK" && nowWIB.Hour() >= 9 && withBroker == 0 {
+		} else if dbQuality == "OK" && liveSignalDue && withBroker == 0 {
 			dbQuality = "NO_BROKER"
 		}
 		dbDetail := fmt.Sprintf(
@@ -734,10 +743,10 @@ func cmdCheckWithDB(repoRoot string, dbPath string, verbose bool, tgFlag bool) e
 		if maxDateStr < needDBDate {
 			items = append(items, item{"DB_Sync", "❌", dbDetail})
 			allOK = false
-		} else if nowWIB.Hour() >= 9 && withPrice == 0 {
+		} else if liveSignalDue && withPrice == 0 {
 			items = append(items, item{"DB_Price", "❌", dbDetail})
 			allOK = false
-		} else if nowWIB.Hour() >= 9 && withBroker == 0 {
+		} else if liveSignalDue && withBroker == 0 {
 			items = append(items, item{"DB_Brok", "⚠️", dbDetail})
 		} else {
 			items = append(items, item{"DB_State", "✅", dbDetail})
@@ -766,7 +775,9 @@ func cmdCheckWithDB(repoRoot string, dbPath string, verbose bool, tgFlag bool) e
 		sb.WriteString(fmt.Sprintf("%s %s `%s`\\n", it.Status, it.Name, it.Detail))
 	}
 
-	if allOK && !isWeekend {
+	if allOK && standby && !isWeekend {
+		sb.WriteString("\n⚠️ *STANDBY — WAITING FOR 15:00 INTRADAY DATA*")
+	} else if allOK && !isWeekend {
 		sb.WriteString("\n✅ *SYSTEM READY-READY 🚀*")
 	} else if isWeekend {
 		sb.WriteString("\n🛌 *MARKET CLOSED (Enjoy your weekend)*")
