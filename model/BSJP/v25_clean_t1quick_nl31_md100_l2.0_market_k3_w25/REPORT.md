@@ -98,7 +98,7 @@ Dengan demikian, half-Kelly literal **bukan cash-only**. Jika strategi dibatasi 
 
 Grafik berikut menunjukkan pertumbuhan modal pada 100 trading days OOT. Baseline menghasilkan pertumbuhan yang kuat dengan drawdown besar tetapi masih dalam batas yang relatif dapat diterima untuk strategi high-growth. Half-Kelly menghasilkan pertumbuhan lebih tinggi, tetapi jalurnya jauh lebih volatile.
 
-![Baseline vs Half-Kelly Equity Curve](./kelly_baseline_vs_half_equity_100d.png)
+![Baseline vs Half-Kelly Equity Curve](https://raw.githubusercontent.com/kemtol/IIIDX/main/model/BSJP/v25_clean_t1quick_nl31_md100_l2.0_market_k3_w25/kelly_baseline_vs_half_equity_100d.png)
 
 | Metrik | Baseline | Half-Kelly |
 |---|---:|---:|
@@ -114,7 +114,7 @@ Sharpe ratio sama karena half-Kelly hanya menskalakan return baseline. Return da
 
 ### 4.2 Drawdown
 
-![Baseline vs Half-Kelly Drawdown](./kelly_baseline_vs_half_drawdown_100d.png)
+![Baseline vs Half-Kelly Drawdown](https://raw.githubusercontent.com/kemtol/IIIDX/main/model/BSJP/v25_clean_t1quick_nl31_md100_l2.0_market_k3_w25/kelly_baseline_vs_half_drawdown_100d.png)
 
 | Metrik Risiko | Baseline | Half-Kelly |
 |---|---:|---:|
@@ -175,27 +175,27 @@ Kesimpulan Monte Carlo:
 
 **Fan Chart 100 Hari**
 
-![Monte Carlo Equity Fan 100D](./monte_carlo/monte_equity_fan_100d.png)
+![Monte Carlo Equity Fan 100D](https://raw.githubusercontent.com/kemtol/IIIDX/main/model/BSJP/v25_clean_t1quick_nl31_md100_l2.0_market_k3_w25/monte_carlo/monte_equity_fan_100d.png)
 
 **Fan Chart 252 Hari**
 
-![Monte Carlo Equity Fan 252D](./monte_carlo/monte_equity_fan_252d.png)
+![Monte Carlo Equity Fan 252D](https://raw.githubusercontent.com/kemtol/IIIDX/main/model/BSJP/v25_clean_t1quick_nl31_md100_l2.0_market_k3_w25/monte_carlo/monte_equity_fan_252d.png)
 
 **Return Distribution 100 Hari**
 
-![Monte Carlo Return CDF 100D](./monte_carlo/monte_return_cdf_100d.png)
+![Monte Carlo Return CDF 100D](https://raw.githubusercontent.com/kemtol/IIIDX/main/model/BSJP/v25_clean_t1quick_nl31_md100_l2.0_market_k3_w25/monte_carlo/monte_return_cdf_100d.png)
 
 **Return Distribution 252 Hari**
 
-![Monte Carlo Return CDF 252D](./monte_carlo/monte_return_cdf_252d.png)
+![Monte Carlo Return CDF 252D](https://raw.githubusercontent.com/kemtol/IIIDX/main/model/BSJP/v25_clean_t1quick_nl31_md100_l2.0_market_k3_w25/monte_carlo/monte_return_cdf_252d.png)
 
 **Max Drawdown Histogram 100 Hari**
 
-![Monte Carlo MaxDD Histogram 100D](./monte_carlo/monte_maxdd_hist_100d.png)
+![Monte Carlo MaxDD Histogram 100D](https://raw.githubusercontent.com/kemtol/IIIDX/main/model/BSJP/v25_clean_t1quick_nl31_md100_l2.0_market_k3_w25/monte_carlo/monte_maxdd_hist_100d.png)
 
 **Max Drawdown Histogram 252 Hari**
 
-![Monte Carlo MaxDD Histogram 252D](./monte_carlo/monte_maxdd_hist_252d.png)
+![Monte Carlo MaxDD Histogram 252D](https://raw.githubusercontent.com/kemtol/IIIDX/main/model/BSJP/v25_clean_t1quick_nl31_md100_l2.0_market_k3_w25/monte_carlo/monte_maxdd_hist_252d.png)
 
 ---
 
@@ -205,15 +205,15 @@ Grafik berikut adalah artifact PnL baseline yang dihasilkan saat training. Grafi
 
 **PnL 20 Trading Days**
 
-![PnL 20D](./pnl_20d.png)
+![PnL 20D](https://raw.githubusercontent.com/kemtol/IIIDX/main/model/BSJP/v25_clean_t1quick_nl31_md100_l2.0_market_k3_w25/pnl_20d.png)
 
 **PnL 50 Trading Days**
 
-![PnL 50D](./pnl_50d.png)
+![PnL 50D](https://raw.githubusercontent.com/kemtol/IIIDX/main/model/BSJP/v25_clean_t1quick_nl31_md100_l2.0_market_k3_w25/pnl_50d.png)
 
 **PnL 100 Trading Days**
 
-![PnL 100D](./pnl_100d.png)
+![PnL 100D](https://raw.githubusercontent.com/kemtol/IIIDX/main/model/BSJP/v25_clean_t1quick_nl31_md100_l2.0_market_k3_w25/pnl_100d.png)
 
 ---
 
