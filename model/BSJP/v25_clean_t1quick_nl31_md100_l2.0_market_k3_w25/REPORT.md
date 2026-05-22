@@ -1,4 +1,4 @@
-# Laporan Analisis Strategi BSJP v25
+# Strategi Overnight IDX Berbasis Machine Learning Iterasi v25
 
 **Evaluasi Sizing Baseline vs Half-Kelly**  
 Tanggal laporan: **21 Mei 2026**  
