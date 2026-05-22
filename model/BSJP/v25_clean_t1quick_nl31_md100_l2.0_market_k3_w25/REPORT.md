@@ -26,7 +26,39 @@ Hasil pengujian pada **100 trading days OOT** menunjukkan bahwa baseline sudah m
 
 ---
 
-## 2. Konteks Strategi
+## 2. Latar Belakang Institusional
+
+Strategi BSJP (Beli Sore Jual Pagi) tidak lahir dari kekosongan ide. Konsep dasar strategi ini berakar pada temuan riset pasar yang mengidentifikasi adanya alpha pada strategi holding overnight di Bursa Efek Indonesia (BEI). Pencarian edge ini pada awalnya tercetus oleh paper penelitian dari Mandiri Sekuritas Research Team yang mengkaji fenomena tersebut secara mendalam.
+
+### 2.1 Temuan Riset Mandiri Sekuritas
+
+Penelitian kunci yang menjadi landasan adalah paper berjudul **"Is Holding Overnight Produce Alpha Compared to Intraday Holding? Case Study in IDX"** yang ditulis oleh Rahmanto Tyas Raharja. Riset ini secara spesifik menganalisis perbandingan performa antara strategi memegang saham saat pasar tutup (overnight) versus memegang saham saat pasar buka (intraday).
+
+Temuan utama dari paper tersebut menyimpulkan bahwa strategi **Overnight Holding**, yaitu membeli pada harga penutupan dan menjual pada pembukaan hari berikutnya, secara konsisten menghasilkan return yang lebih unggul dibandingkan strategi **Intraday Holding** maupun strategi **Buy and Hold** pasif.
+
+### 2.2 Bukti Empiris Data IHSG dan R-LQ45X
+
+Data empiris yang dikutip dalam riset tersebut, mencakup periode 2013-2021, menunjukkan divergensi yang tajam antara kedua strategi:
+
+| Strategi | Interpretasi Hasil |
+|---|---|
+| Overnight Holding | Kurva akumulasi return menunjukkan tren positif yang curam, mengindikasikan bahwa mayoritas pergerakan harga positif di pasar Indonesia terjadi di luar jam perdagangan reguler, yaitu antara close hari T dan open hari T+1. |
+| Intraday Holding | Kurva akumulasi return cenderung stagnan atau fluktuatif tanpa pertumbuhan yang berarti, menandakan bahwa berada di pasar selama jam perdagangan utama tidak memberikan premi return yang signifikan. |
+
+### 2.3 Faktor Penyebab Edge Overnight
+
+Mandiri Sekuritas mengidentifikasi beberapa faktor yang dapat menjelaskan fenomena ini:
+
+1. **Risk Premium Overnight**: adanya kompensasi risiko bagi investor yang menahan posisi saat pasar tutup, mengingat potensi berita eksternal yang dapat memicu volatilitas saat pembukaan.
+2. **Regulasi Pasar Indonesia**: struktur regulasi dan mekanisme perdagangan di IDX dapat mempengaruhi dinamika volatilitas pembukaan.
+3. **Likuiditas ETF**: dinamika likuiditas pada instrumen ETF seperti R-LQ45X dapat menciptakan gap harga yang produktif.
+4. **Pembatasan Pre-Market Trading**: keterbatasan aktivitas pra-pembukaan menyebabkan akumulasi order dieksekusi secara serentak pada jam buka.
+
+Strategi BSJP v25 merupakan upaya untuk mengoperasionalkan temuan institusional ini ke dalam kerangka kerja kuantitatif yang terukur. Perbedaannya, BSJP v25 menambahkan lapisan seleksi saham berbasis machine learning untuk mengoptimalkan pemilihan emiten, bukan sekadar memegang indeks secara pasif.
+
+---
+
+## 3. Konteks Strategi
 
 BSJP adalah strategi **Beli Sore Jual Pagi**. Model memilih saham menjelang penutupan pasar, lalu posisi dijual pada sesi pembukaan hari bursa berikutnya.
 
@@ -53,9 +85,9 @@ Model v25 ini bukan model pemburu ARA murni. Feature importance menunjukkan bahw
 
 ---
 
-## 3. Definisi Sizing
+## 4. Definisi Sizing
 
-### 3.1 Baseline
+### 4.1 Baseline
 
 Baseline adalah policy asli model:
 
@@ -64,7 +96,7 @@ Baseline adalah policy asli model:
 - total gross exposure maksimum sekitar 75%,
 - tidak membutuhkan leverage jika modal tersedia dalam bentuk cash.
 
-### 3.2 Half-Kelly
+### 4.2 Half-Kelly
 
 Half-Kelly dalam laporan ini dihitung dari **return harian portofolio baseline**, bukan dari probability individual saham. Rumus yang dipakai adalah pendekatan empirical Kelly, yaitu mencari multiplier yang memaksimalkan rata-rata log return:
 
@@ -92,9 +124,9 @@ Dengan demikian, half-Kelly literal **bukan cash-only**. Jika strategi dibatasi 
 
 ---
 
-## 4. Hasil Historis OOT: Baseline vs Half-Kelly
+## 5. Hasil Historis OOT: Baseline vs Half-Kelly
 
-### 4.1 Equity Curve
+### 5.1 Equity Curve
 
 Grafik berikut menunjukkan pertumbuhan modal pada 100 trading days OOT. Baseline menghasilkan pertumbuhan yang kuat dengan drawdown besar tetapi masih dalam batas yang relatif dapat diterima untuk strategi high-growth. Half-Kelly menghasilkan pertumbuhan lebih tinggi, tetapi jalurnya jauh lebih volatile.
 
@@ -112,7 +144,7 @@ Grafik berikut menunjukkan pertumbuhan modal pada 100 trading days OOT. Baseline
 
 Sharpe ratio sama karena half-Kelly hanya menskalakan return baseline. Return dan volatilitas naik proporsional. Karena itu, Sharpe tidak boleh dibaca sebagai bukti bahwa half-Kelly lebih aman.
 
-### 4.2 Drawdown
+### 5.2 Drawdown
 
 ![Baseline vs Half-Kelly Drawdown](https://raw.githubusercontent.com/kemtol/IIIDX/main/model/BSJP/v25_clean_t1quick_nl31_md100_l2.0_market_k3_w25/kelly_baseline_vs_half_drawdown_100d.png)
 
@@ -126,7 +158,7 @@ Baseline mengalami drawdown maksimum sekitar -36%. Untuk strategi IDX second-lin
 
 ---
 
-## 5. Performa Rolling Window
+## 6. Performa Rolling Window
 
 Analisis rolling window membantu melihat pengalaman investor jika mulai masuk di fase yang berbeda. Periode terakhir OOT menunjukkan bahwa model sempat mengalami fase pendek yang buruk, terutama pada window 14 hari terakhir.
 
@@ -152,11 +184,11 @@ kelly_baseline_vs_half_30d.csv
 
 ---
 
-## 6. Monte Carlo dan Stress Test
+## 7. Monte Carlo dan Stress Test
 
 Monte Carlo dilakukan dengan block bootstrap dari return harian OOT. Simulasi ini tidak memprediksi masa depan secara presisi, tetapi memberi gambaran distribusi kemungkinan jika pola return historis berulang dalam urutan yang berbeda.
 
-### 6.1 Ringkasan Monte Carlo Baseline vs Half-Kelly
+### 7.1 Ringkasan Monte Carlo Baseline vs Half-Kelly
 
 | Horizon | Skenario | Median Return | P5 Return | Probabilitas Akhir Rugi | Median MaxDD | Prob. MaxDD <= -30% | Prob. MaxDD <= -50% |
 |---:|---|---:|---:|---:|---:|---:|---:|
@@ -171,7 +203,7 @@ Kesimpulan Monte Carlo:
 - Half-Kelly memberi upside yang ekstrem, namun hampir seluruh simulasi mengalami drawdown lebih dari -30%.
 - Pada horizon 252 hari, half-Kelly memiliki probabilitas drawdown lebih dari -50% sebesar 93.61%. Ini menjadikannya tidak cocok sebagai default untuk trader ritel.
 
-### 6.2 Visual Monte Carlo
+### 7.2 Visual Monte Carlo
 
 **Fan Chart 100 Hari**
 
@@ -199,7 +231,7 @@ Kesimpulan Monte Carlo:
 
 ---
 
-## 7. Visual PnL Baseline
+## 8. Visual PnL Baseline
 
 Grafik berikut adalah artifact PnL baseline yang dihasilkan saat training. Grafik ini membantu membaca kondisi performa model pada horizon pendek, menengah, dan penuh OOT.
 
@@ -217,15 +249,15 @@ Grafik berikut adalah artifact PnL baseline yang dihasilkan saat training. Grafi
 
 ---
 
-## 8. Penilaian Risiko
+## 9. Penilaian Risiko
 
-### 8.1 Risiko Drawdown
+### 9.1 Risiko Drawdown
 
 Baseline memiliki MaxDD -35.95%. Dalam konteks strategi agresif yang menargetkan saham IDX dengan pergerakan cepat, drawdown ini masih dapat dipertimbangkan. Namun, investor harus menerima bahwa fase rugi besar tetap mungkin terjadi.
 
 Half-Kelly memiliki MaxDD -58.06%. Ini bukan sekadar volatilitas biasa. Pada level ini, banyak trader akan berhenti mengikuti sistem sebelum strategi sempat pulih.
 
-### 8.2 Risiko Leverage
+### 9.2 Risiko Leverage
 
 Half-Kelly literal membutuhkan gross exposure sekitar 141.66%. Artinya, strategi harus menggunakan margin atau leverage. Risiko tambahan yang tidak tercermin penuh di backtest:
 
@@ -235,7 +267,7 @@ Half-Kelly literal membutuhkan gross exposure sekitar 141.66%. Artinya, strategi
 - slippage lebih besar saat ukuran order naik,
 - disiplin eksekusi yang lebih sulit.
 
-### 8.3 Risiko Lookahead
+### 9.3 Risiko Lookahead
 
 Audit saat ini tidak menunjukkan bukti lookahead fatal pada model v25 T-1 quick. Namun, risiko ini tetap menjadi area kontrol utama. Aturan yang harus terus dijaga:
 
@@ -244,7 +276,7 @@ Audit saat ini tidak menunjukkan bukti lookahead fatal pada model v25 T-1 quick.
 - data intraday harus tersedia sebelum jam keputusan,
 - feature live harus konsisten dengan feature training.
 
-### 8.4 Risiko Operasional Inference
+### 9.4 Risiko Operasional Inference
 
 Backtest yang baik tidak otomatis menjamin sinyal live siap dikirim. Untuk live inference, sistem harus memenuhi syarat berikut:
 
@@ -259,7 +291,7 @@ Pada 21 Mei 2026, bug `entry_price=0` pada jalur inference sudah diperbaiki. Hea
 
 ---
 
-## 9. Rekomendasi Sizing
+## 10. Rekomendasi Sizing
 
 | Profil Pengguna | Rekomendasi |
 |---|---|
@@ -277,7 +309,7 @@ Rekomendasi utama:
 
 ---
 
-## 10. Keputusan Sementara
+## 11. Keputusan Sementara
 
 Model v25 baseline dapat dipertahankan sebagai kandidat strategi BSJP yang agresif tetapi masih realistis. Half-Kelly menunjukkan potensi return yang jauh lebih besar, namun profil risikonya terlalu ekstrem untuk dijadikan default.
 
@@ -293,7 +325,7 @@ Keputusan sementara:
 
 ---
 
-## 11. Artifact Register
+## 12. Artifact Register
 
 ### Data dan Metrik
 
@@ -325,7 +357,7 @@ Keputusan sementara:
 | `monte_carlo/monte_maxdd_hist_252d.png` | Histogram MaxDD Monte Carlo 252 hari |
 ---
 
-## 12. Lampiran A - Daftar Pick OOT 100 Hari
+## 13. Lampiran A - Daftar Pick OOT 100 Hari
 
 Tabel ini menampilkan posisi baseline yang digunakan dalam simulasi OOT 100 hari. Pick sudah mengikuti filter eksekusi backtest: harga minimum, estimasi biaya pasar maksimum, adaptive threshold, dan batas maksimum 3 posisi per hari.
 
